@@ -48,7 +48,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve Jira ticket
         id: resolve_ticket
-        shell: pwsh
+        shell: powershell
         run: |
           $ticket = "${{ inputs.jira_ticket }}"
           if (-not $ticket) {
@@ -83,7 +83,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Configure MCP servers
         if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: pwsh
+        shell: powershell
         env:
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
@@ -120,7 +120,7 @@ jobs:
         if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-        shell: pwsh
+        shell: powershell
         run: |
           $ticket  = "${{ steps.resolve_ticket.outputs.ticket }}"
           $dryRun  = "${{ inputs.dry_run }}"
