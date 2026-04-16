@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # -----------------------------------------------------------------------
       # Resolve the Jira ticket — from workflow_dispatch input, or by
@@ -48,6 +48,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve Jira ticket
         id: resolve_ticket
+        shell: bash
         run: |
           if [ -n "${{ inputs.jira_ticket }}" ]; then
             TICKET="${{ inputs.jira_ticket }}"
@@ -122,6 +123,7 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
         run: |
           PROMPT="Jira ticket: ${{ steps.resolve_ticket.outputs.ticket }}. Dry run: ${DRY_RUN}.
 
@@ -153,7 +155,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Upload agent output artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent-output-${{ github.run_number }}
           path: agent-output.md
