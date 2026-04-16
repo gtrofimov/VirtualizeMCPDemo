@@ -48,20 +48,22 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve Jira ticket
         id: resolve_ticket
-        shell: bash
+        shell: pwsh
         run: |
-          if [ -n "${{ inputs.jira_ticket }}" ]; then
-            TICKET="${{ inputs.jira_ticket }}"
-          else
-            TICKET=$(echo "${{ github.event.head_commit.message }}" | grep -oE '\b[A-Z]{2,10}-[0-9]+\b' | head -1)
-          fi
-          if [ -z "$TICKET" ]; then
-            echo "No Jira ticket found in commit message — skipping."
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "ticket=$TICKET" >> $GITHUB_OUTPUT
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
+          $ticket = "${{ inputs.jira_ticket }}"
+          if (-not $ticket) {
+            $commitMsg = "${{ github.event.head_commit.message }}"
+            $match = [regex]::Match($commitMsg, '\b[A-Z]{2,10}-\d+\b')
+            $ticket = if ($match.Success) { $match.Value } else { "" }
+          }
+          if (-not $ticket) {
+            Write-Host "No Jira ticket found in commit message — skipping."
+            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "Resolved ticket: $ticket"
+            "ticket=$ticket" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
 
       # -----------------------------------------------------------------------
       # Install GitHub Copilot CLI
@@ -81,35 +83,31 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Configure MCP servers
         if: steps.resolve_ticket.outputs.skip != 'true'
+        shell: pwsh
         env:
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
           VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
-        shell: bash
         run: |
-          mkdir -p ~/.copilot
-          cat > ~/.copilot/mcp-config.json <<EOF
-          {
-            "mcpServers": {
-              "jira-remote": {
-                "type": "http",
-                "url": "https://mcp.atlassian.com/v1/mcp",
-                "headers": {
-                  "Authorization": "Basic ${ATLASSIAN_BASIC_AUTH}"
-                },
-                "tools": ["*"]
-              },
-              "virtualize": {
-                "type": "http",
-                "url": "${VIRTUALIZE_MCP_URL}",
-                "headers": {
-                  "Authorization": "Basic ${VIRTUALIZE_AUTH_TOKEN}"
-                },
-                "tools": ["*"]
+          $configDir = "$env:USERPROFILE\.copilot"
+          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+          $config = [ordered]@{
+            mcpServers = [ordered]@{
+              'jira-remote' = [ordered]@{
+                type    = 'http'
+                url     = 'https://mcp.atlassian.com/v1/mcp'
+                headers = @{ Authorization = "Basic $env:ATLASSIAN_BASIC_AUTH" }
+                tools   = @('*')
+              }
+              virtualize = [ordered]@{
+                type    = 'http'
+                url     = $env:VIRTUALIZE_MCP_URL
+                headers = @{ Authorization = "Basic $env:VIRTUALIZE_AUTH_TOKEN" }
+                tools   = @('*')
               }
             }
           }
-          EOF
+          $config | ConvertTo-Json -Depth 10 | Set-Content "$configDir\mcp-config.json" -Encoding utf8
 
       # -----------------------------------------------------------------------
       # Run the Copilot CLI agent in programmatic mode.
@@ -122,10 +120,12 @@ jobs:
         if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        shell: bash
+        shell: pwsh
         run: |
-          PROMPT="Jira ticket: ${{ steps.resolve_ticket.outputs.ticket }}. Dry run: ${DRY_RUN}.
+          $ticket  = "${{ steps.resolve_ticket.outputs.ticket }}"
+          $dryRun  = "${{ inputs.dry_run }}"
+          $prompt  = @"
+          Jira ticket: $ticket. Dry run: $dryRun.
 
           You are an expert DevOps automation engineer with deep knowledge of both
           Atlassian Jira and Parasoft Virtualize.
@@ -143,12 +143,9 @@ jobs:
             note them in your final summary.
           - If Dry run is true, describe what you would create but do not call any
             Virtualize write or deploy tools.
-          - Always confirm successful deployment before finishing."
-
-          copilot -p "$PROMPT" \
-            --allow-tool='mcp(*)' \
-            --no-ask-user \
-            --share='./agent-output.md'
+          - Always confirm successful deployment before finishing.
+          "@
+          copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user --share './agent-output.md'
 
       # -----------------------------------------------------------------------
       # Persist the Copilot session transcript as a workflow artifact.
