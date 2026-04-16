@@ -113,21 +113,20 @@ jobs:
           $config | ConvertTo-Json -Depth 10 | Set-Content "$configDir\mcp-config.json" -Encoding utf8
 
       # -----------------------------------------------------------------------
-      # Run the Copilot CLI agent in programmatic mode.
-      # --allow-tool='mcp(*)' permits all MCP tool calls.
-      # --no-ask-user prevents interactive prompts in CI.
-      # -s (silent) suppresses session metadata; clean output goes to the log.
-      # --share writes the full session transcript to agent-output.md.
+      # Agent step 1: Read the Jira story, create and deploy the virtual
+      # service via Virtualize MCP, and emit ENDPOINT_URL=http://host:port
+      # so the validation steps know where the service is listening.
       # -----------------------------------------------------------------------
-      - name: Run Copilot Agent
+      - name: Run Copilot Agent - Create Virtual Service from Jira Story
+        id: create_vs
         if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         shell: powershell
         run: |
-          $ticket  = "${{ steps.resolve_ticket.outputs.ticket }}"
-          $dryRun  = "${{ inputs.dry_run }}"
-          $prompt  = @"
+          $ticket = "${{ steps.resolve_ticket.outputs.ticket }}"
+          $dryRun = "${{ inputs.dry_run }}"
+          $prompt = @"
           Jira ticket: $ticket. Dry run: $dryRun.
 
           You are an expert DevOps automation engineer with deep knowledge of both
@@ -140,6 +139,10 @@ jobs:
           3. Use the virtualize MCP tools to create and deploy a virtual service that
              satisfies those requirements.
           4. Report a concise summary of what was created (service name, endpoint, port).
+          5. At the very end of your response output one line in this exact format:
+             ENDPOINT_URL=http://hostname:port
+             Use the base URL only (scheme, host, port) with no trailing slash or path.
+             Omit this line if Dry run is true.
 
           Guidelines:
           - If information is missing from the Jira story, make reasonable defaults and
@@ -148,16 +151,104 @@ jobs:
             Virtualize write or deploy tools.
           - Always confirm successful deployment before finishing.
           "@
-          copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user --share './agent-output.md'
+          $output = copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user
+          $output
+          $endpointLine = $output | Where-Object { $_ -match '^ENDPOINT_URL=' }
+          if ($endpointLine) {
+            $endpointUrl = ($endpointLine -replace '^ENDPOINT_URL=', '').Trim()
+            Write-Host "Captured endpoint URL: $endpointUrl"
+            "endpoint_url=$endpointUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "No ENDPOINT_URL found in agent output - validation steps will be skipped."
+          }
 
       # -----------------------------------------------------------------------
-      # Persist the Copilot session transcript as a workflow artifact.
+      # Agent step 2: Read the Jira story to determine what a valid test
+      # request looks like, then emit structured TEST_METHOD / TEST_PATH /
+      # TEST_BODY lines for the verification step below.
+      # Skipped on dry runs or when no endpoint URL was captured.
       # -----------------------------------------------------------------------
-      - name: Upload agent output artifact
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: agent-output-${{ github.run_number }}
-          path: agent-output.md
-          if-no-files-found: ignore
-          retention-days: 30
+      - name: Run Copilot Agent - Validate Virtual Service Deployment
+        id: validate_vs
+        if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.endpoint_url != ''
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+        shell: powershell
+        run: |
+          $ticket      = "${{ steps.resolve_ticket.outputs.ticket }}"
+          $endpointUrl = "${{ steps.create_vs.outputs.endpoint_url }}"
+          $prompt = @"
+          Jira ticket: $ticket. Virtual service base URL: $endpointUrl.
+
+          You are a QA automation engineer preparing a sanity test for a freshly deployed
+          Parasoft Virtualize virtual service.
+
+          Your task:
+          1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
+          2. From the story, determine what a valid HTTP test request looks like:
+             the HTTP method, the full path (not including host or port), any required
+             request headers, and a representative request body for POST or PUT requests.
+          3. At the very end of your response output these lines in this exact format:
+             TEST_METHOD=GET
+             TEST_PATH=/api/example/path
+             TEST_BODY={"key":"value"}
+             Omit TEST_BODY if the method does not require a body (GET, DELETE, HEAD).
+
+          Guidelines:
+          - Use only information from the Jira story to determine the request format.
+          - Output the TEST_* lines as the very last lines of your response with no trailing text.
+          - Do not call any Virtualize MCP tools in this step.
+          "@
+          $output = copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user
+          $output
+          $methodLine = $output | Where-Object { $_ -match '^TEST_METHOD=' }
+          $pathLine   = $output | Where-Object { $_ -match '^TEST_PATH=' }
+          $bodyLine   = $output | Where-Object { $_ -match '^TEST_BODY=' }
+          if ($methodLine) {
+            "test_method=$(($methodLine -replace '^TEST_METHOD=','').Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+          if ($pathLine) {
+            "test_path=$(($pathLine -replace '^TEST_PATH=','').Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+          if ($bodyLine) {
+            "test_body=$(($bodyLine -replace '^TEST_BODY=','').Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      # -----------------------------------------------------------------------
+      # Verification step: make the actual HTTP call and assert HTTP 200.
+      # Uses the endpoint URL from the create step and the request details
+      # extracted by the validate agent step above.
+      # -----------------------------------------------------------------------
+      - name: Verify Virtual Service Returns HTTP 200
+        if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.endpoint_url != ''
+        shell: powershell
+        run: |
+          $baseUrl    = "${{ steps.create_vs.outputs.endpoint_url }}"
+          $testPath   = "${{ steps.validate_vs.outputs.test_path }}"
+          $testMethod = "${{ steps.validate_vs.outputs.test_method }}"
+          $testBody   = "${{ steps.validate_vs.outputs.test_body }}"
+          if (-not $testMethod) { $testMethod = 'GET' }
+          $fullUrl = "$baseUrl$testPath"
+          Write-Host "Sending $testMethod $fullUrl"
+          $params = @{
+            Uri             = $fullUrl
+            Method          = $testMethod
+            UseBasicParsing = $true
+          }
+          if ($testBody) {
+            $params.Body        = $testBody
+            $params.ContentType = 'application/json'
+          }
+          try {
+            $response = Invoke-WebRequest @params -ErrorAction Stop
+            Write-Host "Response status: $($response.StatusCode)"
+            if ($response.StatusCode -eq 200) {
+              Write-Host "PASS: Virtual service returned HTTP 200."
+            } else {
+              Write-Error "FAIL: Expected 200 but received $($response.StatusCode)."
+              exit 1
+            }
+          } catch {
+            Write-Error "FAIL: HTTP request threw an exception - $_"
+            exit 1
+          }
