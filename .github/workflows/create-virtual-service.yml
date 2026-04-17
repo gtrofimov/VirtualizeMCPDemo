@@ -146,24 +146,30 @@ jobs:
           Never attempt to derive or guess the cloudId from usernames, emails, or URLs.
           
           IMPORTANT:
+          The Virtualize MCP tools for creating virtual services require a service name. If a 
+          high confidence name cannot be inferred from the Jira story, use the Jira ticket number
+          as a reasonable default. If that name is already in use on the Virtualize server,
+          choose a unique name (e.g., by appending -1, -2, etc. to the virtual service name so that
+          it is unqieu and will not conflict with existing virtual services).
+
+          IMPORTANT:
           The Virtualize MCP tools for creating virtual services require a deployment parameter.
           This parameter is an additional url path segment prefix that the virtual service 
           will listen on that is independent from the expected request URL the virtual service
           is simulating. It is often used to segment virtual services by team, project, client 
           application, or any other logical grouping. If a high confidence value for the 
           deployment parameter cannot be inferred from the Jira story, use the name of this 
-          repository as a reasonable default.
+          repository as a reasonable default. If existing virtual serivces on the Virtualize server
+          are already using that deployment parameter, choose a unique value (e.g., by appending
+          -1, -2, etc. to the deployment parameter value so that it is unique and will not conflict
+          with existing virtual services).
 
           IMPORTANT:
           The Virtualize MCP tools for creating virtual services require a deployment port. If 
           a high confidence port number cannot be inferred from the Jira story, use 38000 as
-          a reasonable default.
-
-          IMPORTANT:
-          If the Virtualize MCP tools for creating virtual services report that the virtual service
-          name or deployment port are already in use, instruct the tools with unique values so that
-          a new virtual service will be created successfully. Do not accept that a virtual service
-          already exists as a valid outcome for this task.
+          a reasonable default. List existing services on the Virtualize server, collect 
+          occupied ports, then choose the first free port starting from 38000 (or starting from
+          the port inferred from the Jira story).
 
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
@@ -173,24 +179,22 @@ jobs:
              satisfies those requirements.
           4. Report a concise summary of what was created (service name, endpoint, port).
           5. At the very end of your response output these lines in this exact format:
-             ENDPOINT_URL=http://hostname:port
              TEST_METHOD=POST
              FULL_TEST_URL=http://hostname:port/deployment/full/path?param=value
              Where:
-             - ENDPOINT_URL is the base URL only (scheme, host, port), no trailing slash or path.
              - TEST_METHOD is the HTTP method to use for a representative sanity test call.
              - FULL_TEST_URL is the complete URL for a representative sanity test call,
                including the deployment prefix, the full endpoint path, and representative
                query parameters from the Jira story. This must be a URL that the deployed
                virtual service will respond to with HTTP 200.
-             Omit all three lines if Dry run is true.
+             Omit all two lines if Dry run is true.
 
           Guidelines:
           - If information is missing from the Jira story, make reasonable defaults and
             note them in your final summary.
           - If Dry run is true, describe what you would create but do not call any
             Virtualize write or deploy tools.
-          - Always confirm successful deployment before finishing.
+          - Always confirm whether successful deployment occurred before finishing.
           "@
           $ErrorActionPreference = 'Continue'
           $output = copilot -p $prompt `
