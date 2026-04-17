@@ -100,6 +100,7 @@ jobs:
                 type    = 'http'
                 url     = 'https://mcp.atlassian.com/v1/mcp'
                 headers = @{ Authorization = "Basic $env:ATLASSIAN_BASIC_AUTH" }
+                env     = @{ ATLASSIAN_BASE_URL = 'https://parasoft-demo.atlassian.net' }
                 tools   = @('*')
               }
               virtualize = [ordered]@{

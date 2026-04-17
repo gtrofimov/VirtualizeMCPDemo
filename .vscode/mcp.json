@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "virtualize": {
+      "type": "http",
+      "url": "http://localhost:9080/soavirt/mcp",
+      "headers": {"Authorization": "Basic YWRtaW46YWRtaW4="}
+    },
+    "Atlassian-MCP": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v1/mcp",
+      "gallery": true
+    }
+  }
+}
