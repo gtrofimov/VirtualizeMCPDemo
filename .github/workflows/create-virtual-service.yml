@@ -101,17 +101,23 @@ jobs:
                 url     = 'https://mcp.atlassian.com/v1/mcp'
                 headers = @{ Authorization = "Basic $env:ATLASSIAN_BASIC_AUTH" }
                 env     = @{ ATLASSIAN_BASE_URL = 'https://parasoft-demo.atlassian.net' }
-                tools   = @('*')
               }
               virtualize = [ordered]@{
                 type    = 'http'
                 url     = $env:VIRTUALIZE_MCP_URL
                 headers = @{ Authorization = "Basic $env:VIRTUALIZE_AUTH_TOKEN" }
-                tools   = @('*')
               }
             }
           }
           $config | ConvertTo-Json -Depth 10 | Set-Content "$configDir\mcp-config.json" -Encoding utf8
+          Write-Host "--- mcp-config.json written ---"
+          $written = Get-Content "$configDir\mcp-config.json" | ConvertFrom-Json
+          Write-Host "jira-remote url: $($written.mcpServers.'jira-remote'.url)"
+          Write-Host "virtualize url:  $($written.mcpServers.virtualize.url)"
+          if (-not $written.mcpServers.virtualize.url) {
+            Write-Error "VIRTUALIZE_MCP_URL is empty - check that the secret is set."
+            exit 1
+          }
 
       # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
