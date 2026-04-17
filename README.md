@@ -10,23 +10,23 @@ orchestrated by **GitHub Copilot CLI** via the **Model Context Protocol (MCP)**.
 ## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  GitHub Actions  (self-hosted runner on the same host as        │
-│                   Parasoft Virtualize)                          │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  GitHub Copilot CLI  (programmatic / --no-ask-user)    │    │
-│  │                                                         │    │
-│  │   ┌──────────────────┐    ┌──────────────────────────┐ │    │
-│  │   │  Jira MCP Server │    │  Virtualize MCP Server   │ │    │
-│  │   │  (Atlassian      │    │  (local HTTP endpoint)   │ │    │
-│  │   │   Remote MCP)    │    │                          │ │    │
-│  │   │  • get_issue     │    │  • list_virtual_services │ │    │
-│  │   │  • search_issues │    │  • create_virtual_service│ │    │
-│  │   │  • …             │    │  • deploy / start / stop │ │    │
-│  │   └──────────────────┘    └──────────────────────────┘ │    │
-│  └────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│  GitHub Actions  (self-hosted runner on the same host as          │
+│                   Parasoft Virtualize)                            │
+│                                                                   │
+│  ┌───────────────────────────────────────────────────────────┐    │
+│  │  GitHub Copilot CLI  (programmatic / --no-ask-user)       │    │
+│  │                                                           │    │
+│  │   ┌──────────────────┐    ┌───────────────────────────┐   │    │
+│  │   │  Jira MCP Server │    │  Virtualize MCP Server    │   │    │
+│  │   │  (Atlassian      │    │  (local HTTP endpoint)    │   │    │
+│  │   │   Remote MCP)    │    │                           │   │    │
+│  │   │  • get_issue     │    │  • list_virtual_services  │   │    │
+│  │   │  • search_issues │    │  • create_virtual_service │   │    │
+│  │   │  • …             │    │  • deploy / start / stop  │   │    │
+│  │   └──────────────────┘    └───────────────────────────┘   │    │
+│  └───────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 1. You trigger the workflow (`workflow_dispatch`) with a Jira ticket number.
