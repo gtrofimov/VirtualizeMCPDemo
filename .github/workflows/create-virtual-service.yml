@@ -151,6 +151,24 @@ jobs:
           }
 
       # -----------------------------------------------------------------------
+      # Diagnostic: ask the agent to list all available MCP tools so we can
+      # see exactly how Copilot CLI registers the virtualize server's tools.
+      # Remove this step once the allow-tool pattern is confirmed working.
+      # -----------------------------------------------------------------------
+      - name: Diagnostic - List available MCP tools
+        if: steps.resolve_ticket.outputs.skip != 'true'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          copilot -p "List every MCP tool available to you. For each tool, output its exact server name and tool name in this format: SERVER=<server> TOOL=<tool>. Do not call any tools." `
+            --allow-tool 'mcp(jira-remote:*)' `
+            --allow-tool 'mcp(virtualize:*)' `
+            --allow-tool 'mcp(*)' `
+            --no-ask-user
+
+      # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
       # service via Virtualize MCP, and emit ENDPOINT_URL=http://host:port
       # so the validation steps know where the service is listening.
