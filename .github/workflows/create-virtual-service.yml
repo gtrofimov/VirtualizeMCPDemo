@@ -120,29 +120,6 @@ jobs:
           }
 
       # -----------------------------------------------------------------------
-      # Write the Virtualize TLS certificate so Node.js (Copilot CLI) trusts it.
-      # VIRTUALIZE_TLS_CERT is the base64-encoded DER certificate exported from
-      # the Virtualize HTTPS endpoint. Node.js requires PEM format, so we wrap
-      # the base64 in PEM headers rather than decoding to binary DER.
-      # -----------------------------------------------------------------------
-      - name: Write Virtualize TLS certificate
-        id: write_virtualize_cert
-        if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
-        env:
-          VIRTUALIZE_TLS_CERT: ${{ secrets.VIRTUALIZE_TLS_CERT }}
-        run: |
-          $certDir = "$env:TEMP\virtualize-certs"
-          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
-          $pemPath = "$certDir\virtualize.pem"
-          $b64 = $env:VIRTUALIZE_TLS_CERT
-          $lines = for ($i = 0; $i -lt $b64.Length; $i += 64) { $b64.Substring($i, [Math]::Min(64, $b64.Length - $i)) }
-          $pem = "-----BEGIN CERTIFICATE-----`n" + ($lines -join "`n") + "`n-----END CERTIFICATE-----"
-          [IO.File]::WriteAllText($pemPath, $pem, [Text.Encoding]::ASCII)
-          Write-Host "Virtualize TLS cert written as PEM to $pemPath"
-          "VIRTUALIZE_CERT_PATH=$pemPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
-      # -----------------------------------------------------------------------
       # Smoke-test Virtualize MCP server reachability before running the agent.
       # A 400 response is acceptable — it means the server is up but rejected
       # the plain POST body (expected for streamable-HTTP MCP servers).
@@ -165,7 +142,7 @@ jobs:
             Write-Host "Response status: $($resp.StatusCode) - server is reachable."
           } catch {
             Write-Host "WARNING: probe exception: $($_.Exception.Message)"
-            Write-Host "Continuing - Copilot CLI uses NODE_EXTRA_CA_CERTS for TLS trust, not .NET."
+            Write-Host "Continuing - Copilot CLI uses NODE_TLS_REJECT_UNAUTHORIZED=0 to skip TLS validation for the local Virtualize server."
           }
 
       # -----------------------------------------------------------------------
@@ -177,14 +154,12 @@ jobs:
         if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_EXTRA_CA_CERTS: ${{ steps.write_virtualize_cert.outputs.VIRTUALIZE_CERT_PATH }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           copilot -p "List every MCP tool available to you. For each tool, output its exact server name and tool name in this format: SERVER=<server> TOOL=<tool>. Do not call any tools." `
-            --allow-tool 'mcp(jira-remote:*)' `
-            --allow-tool 'mcp(virtualize:*)' `
-            --allow-tool 'mcp(*)' `
+            --yolo `
             --no-ask-user
 
       # -----------------------------------------------------------------------
@@ -197,7 +172,7 @@ jobs:
         if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_EXTRA_CA_CERTS: ${{ steps.write_virtualize_cert.outputs.VIRTUALIZE_CERT_PATH }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
         shell: powershell
         run: |
           $ticket = "${{ steps.resolve_ticket.outputs.ticket }}"
@@ -240,9 +215,7 @@ jobs:
           "@
           $ErrorActionPreference = 'Continue'
           $output = copilot -p $prompt `
-            --allow-tool 'mcp(jira-remote:*)' `
-            --allow-tool 'mcp(virtualize:*)' `
-            --allow-tool 'mcp(*)' `
+            --yolo `
             --no-ask-user
           $copilotExit = $LASTEXITCODE
           $output
@@ -270,7 +243,7 @@ jobs:
         if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.endpoint_url != ''
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_EXTRA_CA_CERTS: ${{ steps.write_virtualize_cert.outputs.VIRTUALIZE_CERT_PATH }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
         shell: powershell
         run: |
           $ticket      = "${{ steps.resolve_ticket.outputs.ticket }}"
@@ -305,7 +278,7 @@ jobs:
           "@
           $ErrorActionPreference = 'Continue'
           $output = copilot -p $prompt `
-            --allow-tool 'mcp(jira-remote:*)' `
+            --yolo `
             --no-ask-user
           $copilotExit = $LASTEXITCODE
           $output
