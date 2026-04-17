@@ -169,9 +169,12 @@ jobs:
           2. Analyze the story to extract all virtual service requirements: endpoint path,
              HTTP method(s), request/response schema, port, and any behavior rules.
           3. Use the virtualize MCP tools to create and deploy a virtual service that
-             satisfies all of the requirements found in the story.
-          4. Include a catch-all `200` response for requests whose values deviate from any 
-             example data in the Jira story.
+             satisfies the requirements found in the story.
+             - If creating multiple request-response interactions, download the files after
+               the initial virtual asset creation and follow the readme and examples to enrich
+               the virtual service with the additional interactions. Always include a catch-all 
+               `200` response for requests whose values deviate from any example data found in 
+               the Jira story.
           5. Report a concise summary of what was created (service name, endpoint, port).
           6. At the very end of your response output these lines in this exact format:
              TEST_METHOD=POST
