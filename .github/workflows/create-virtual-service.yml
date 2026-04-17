@@ -133,6 +133,12 @@ jobs:
           You are an expert DevOps automation engineer with deep knowledge of both
           Atlassian Jira and Parasoft Virtualize.
 
+          IMPORTANT:
+          You must always use the following when calling jira-remote tools:
+            - cloudId: parasoft-demo.atlassian.net
+          Never attempt to derive or guess the cloudId from usernames, emails, or URLs.
+          Any other value will fail.
+          
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
           2. Analyze the story to extract all virtual service requirements: endpoint path,
@@ -152,7 +158,7 @@ jobs:
             Virtualize write or deploy tools.
           - Always confirm successful deployment before finishing.
           "@
-          $output = copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user
+          $output = copilot -p $prompt --allow-tool '*' --no-ask-user
           $output
           $endpointLine = $output | Where-Object { $_ -match '^ENDPOINT_URL=' }
           if ($endpointLine) {
@@ -184,6 +190,12 @@ jobs:
           You are a QA automation engineer preparing a sanity test for a freshly deployed
           Parasoft Virtualize virtual service.
 
+          IMPORTANT:
+          You must always use the following when calling jira-remote tools:
+            - cloudId: parasoft-demo.atlassian.net
+          Never attempt to derive or guess the cloudId from usernames, emails, or URLs.
+          Any other value will fail.
+          
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
           2. From the story, determine what a valid HTTP test request looks like:
@@ -200,7 +212,7 @@ jobs:
           - Output the TEST_* lines as the very last lines of your response with no trailing text.
           - Do not call any Virtualize MCP tools in this step.
           "@
-          $output = copilot -p $prompt --allow-tool 'mcp(*)' --no-ask-user
+          $output = copilot -p $prompt --allow-tool '*' --no-ask-user
           $output
           $methodLine = $output | Where-Object { $_ -match '^TEST_METHOD=' }
           $pathLine   = $output | Where-Object { $_ -match '^TEST_PATH=' }
