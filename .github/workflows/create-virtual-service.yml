@@ -120,49 +120,6 @@ jobs:
           }
 
       # -----------------------------------------------------------------------
-      # Smoke-test Virtualize MCP server reachability before running the agent.
-      # A 400 response is acceptable — it means the server is up but rejected
-      # the plain POST body (expected for streamable-HTTP MCP servers).
-      # 401/403 means bad credentials. 000/timeout means unreachable.
-      # -----------------------------------------------------------------------
-      - name: Verify Virtualize MCP server is reachable
-        if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
-        env:
-          VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
-          VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
-        run: |
-          Write-Host "Probing $env:VIRTUALIZE_MCP_URL ..."
-          try {
-            $resp = Invoke-WebRequest -Uri $env:VIRTUALIZE_MCP_URL `
-              -Method GET `
-              -Headers @{ Authorization = "Basic $env:VIRTUALIZE_AUTH_TOKEN" } `
-              -UseBasicParsing `
-              -ErrorAction Stop
-            Write-Host "Response status: $($resp.StatusCode) - server is reachable."
-          } catch {
-            Write-Host "WARNING: probe exception: $($_.Exception.Message)"
-            Write-Host "Continuing - Copilot CLI uses NODE_TLS_REJECT_UNAUTHORIZED=0 to skip TLS validation for the local Virtualize server."
-          }
-
-      # -----------------------------------------------------------------------
-      # Diagnostic: ask the agent to list all available MCP tools so we can
-      # see exactly how Copilot CLI registers the virtualize server's tools.
-      # Remove this step once the allow-tool pattern is confirmed working.
-      # -----------------------------------------------------------------------
-      - name: Diagnostic - List available MCP tools
-        if: steps.resolve_ticket.outputs.skip != 'true'
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Continue'
-          copilot -p "List every MCP tool available to you. For each tool, output its exact server name and tool name in this format: SERVER=<server> TOOL=<tool>. Do not call any tools." `
-            --yolo `
-            --no-ask-user
-
-      # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
       # service via Virtualize MCP, and emit ENDPOINT_URL=http://host:port
       # so the validation steps know where the service is listening.
@@ -188,12 +145,21 @@ jobs:
           You must always use the following when calling jira-remote tools:
             - cloudId: parasoft-demo.atlassian.net
           Never attempt to derive or guess the cloudId from usernames, emails, or URLs.
-          Any other value will fail.
+          
+          IMPORTANT:
+          The Virtualize MCP tools for creating virtual services require a deployment parameter.
+          This parameter is an additional url path segment prefix that the virtual service 
+          will listen on that is independent from the expected request URL the virtual service
+          is simulating. It is often used to segment virtual services by team, project, client 
+          application, or any other logical grouping. If a high confidence value for the 
+          deployment parameter cannot be inferred from the Jira story, use the name of this 
+          repository as a reasonable default.
 
           IMPORTANT:
-          You are explicitly authorized to execute Virtualize MCP tools, including creating and deploying services.
-          Do not request user approval. Proceed with tool execution directly.
-          
+          The Virtualize MCP tools for creating virtual services require a deployment port. If 
+          a high confidence port number cannot be inferred from the Jira story, use 38000 as
+          a reasonable default.
+
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
           2. Analyze the story to extract all virtual service requirements: endpoint path,
@@ -258,7 +224,6 @@ jobs:
           You must always use the following when calling jira-remote tools:
             - cloudId: parasoft-demo.atlassian.net
           Never attempt to derive or guess the cloudId from usernames, emails, or URLs.
-          Any other value will fail.
           
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
