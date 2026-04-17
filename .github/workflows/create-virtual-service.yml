@@ -135,9 +135,10 @@ jobs:
           $certDir = "$env:TEMP\virtualize-certs"
           New-Item -ItemType Directory -Force -Path $certDir | Out-Null
           $pemPath = "$certDir\virtualize.pem"
-          "-----BEGIN CERTIFICATE-----" | Set-Content $pemPath -Encoding ascii
-          $env:VIRTUALIZE_TLS_CERT | Add-Content $pemPath -Encoding ascii
-          "-----END CERTIFICATE-----" | Add-Content $pemPath -Encoding ascii
+          $b64 = $env:VIRTUALIZE_TLS_CERT
+          $lines = for ($i = 0; $i -lt $b64.Length; $i += 64) { $b64.Substring($i, [Math]::Min(64, $b64.Length - $i)) }
+          $pem = "-----BEGIN CERTIFICATE-----`n" + ($lines -join "`n") + "`n-----END CERTIFICATE-----"
+          [IO.File]::WriteAllText($pemPath, $pem, [Text.Encoding]::ASCII)
           Write-Host "Virtualize TLS cert written as PEM to $pemPath"
           "VIRTUALIZE_CERT_PATH=$pemPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
