@@ -20,10 +20,9 @@ on:
     branches:
       - main
 
-# Minimal token permissions — this workflow only needs to upload artifacts.
+# Minimal token permissions — read-only access to checkout the repository.
 permissions:
   contents: read
-  actions: write
 
 jobs:
   create-virtual-service:
@@ -197,15 +196,10 @@ jobs:
             Write-Error "Copilot CLI exited with code $copilotExit. See output above for details."
             exit $copilotExit
           }
-          $endpointLine   = $output | Where-Object { $_ -match '^ENDPOINT_URL=' }
           $testMethodLine = $output | Where-Object { $_ -match '^TEST_METHOD=' }
           $fullTestUrlLine = $output | Where-Object { $_ -match '^FULL_TEST_URL=' }
-          if ($endpointLine) {
-            $endpointUrl = ($endpointLine -replace '^ENDPOINT_URL=', '').Trim()
-            Write-Host "Captured endpoint URL: $endpointUrl"
-            "endpoint_url=$endpointUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host "No ENDPOINT_URL found in agent output - verification step will be skipped."
+          if (-not $fullTestUrlLine) {
+            Write-Host "No FULL_TEST_URL found in agent output - verification step will be skipped."
           }
           if ($testMethodLine) {
             $testMethod = ($testMethodLine -replace '^TEST_METHOD=', '').Trim()
@@ -219,8 +213,9 @@ jobs:
           }
 
       # -----------------------------------------------------------------------
-      # Verification step 2: make the actual HTTP call and assert HTTP 200.
-      # Uses the full test URL emitted by the create step
+      # Verification step: make the actual HTTP call and assert HTTP 200.
+      # Uses the full test URL emitted by the create step — no separate
+      # agent invocation needed.
       # -----------------------------------------------------------------------
       - name: Verify Virtual Service Returns HTTP 200
         if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.full_test_url != ''

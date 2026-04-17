@@ -34,7 +34,8 @@ orchestrated by **GitHub Copilot CLI** via the **Model Context Protocol (MCP)**.
 3. Copilot extracts the API specification from the story and calls the
    **Parasoft Virtualize MCP Server** (running locally on the runner) to
    create and deploy the virtual service.
-4. The full session transcript is uploaded as a workflow artifact.
+4. The workflow verifies the deployed service responds with HTTP 200 using
+   the test URL the agent emits as part of its summary.
 
 ---
 
@@ -97,8 +98,8 @@ enter your Jira ticket number, and click **Run workflow**.
 
 ## Customisation
 
-- **Change the prompt**: edit the `PROMPT` variable in the `Run Copilot Agent` step of the workflow.
-- **Restrict MCP tools**: replace `--allow-tool='mcp(*)'` with `--allow-tool='mcp(jira-remote:get_issue, virtualize:*)'` or similar.
+- **Change the prompt**: edit the prompt heredoc in the `Run Copilot Agent - Create Virtual Service from Jira Story` step of the workflow.
+- **Lock down tool permissions**: the workflow uses `--yolo` (all tools allowed) as a workaround for a known Copilot CLI bug where `--allow-tool` does not work in `--prompt` / `-p` mode ([issue #1592](https://github.com/github/copilot-cli/issues/1592)). Once that bug is fixed, replace `--yolo` with `--allow-tool='jira-remote' --allow-tool='virtualize'`.
 - **Different Virtualize MCP URL**: update the `VIRTUALIZE_MCP_URL` secret.
 - **Additional workflow triggers** (e.g. on issue label): extend the `on:` block in the workflow file.
 

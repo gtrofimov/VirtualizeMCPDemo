@@ -63,7 +63,7 @@ add each of the following:
 
 > **Atlassian API token auth**: In your Atlassian Admin console go to
 > **Rovo → MCP server** and enable **Allow authentication via API token**.
-> Then generate an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+> Then generate a Rovo API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
 
 ---
 
