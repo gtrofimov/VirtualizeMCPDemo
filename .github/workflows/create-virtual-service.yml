@@ -215,15 +215,11 @@ jobs:
 
           IMPORTANT:
           The Virtualize MCP tools for creating virtual services require a deployment parameter.
-          This parameter is an additional url path segment prefix that the virtual service 
-          will listen on that is independent from the expected request URL the virtual service
-          is simulating. It is often used to segment virtual services by team, project, client 
-          application, or any other logical grouping. If a high confidence value for the 
-          deployment parameter cannot be inferred from the Jira story, use the name of this 
-          repository as a reasonable default. If existing virtual services on the Virtualize server
-          are already using that deployment parameter, choose a unique value (e.g., by appending
-          -1, -2, etc. to the deployment parameter value so that it is unique and will not conflict
-          with existing virtual services).
+          Use this exact deployment parameter value: VirtualizeMCPDemo.
+          Do not append numeric suffixes to this deployment value (do not use values like
+          VirtualizeMCPDemo-1 or VirtualizeMCPDemo-2). If uniqueness is needed, make the
+          service name unique and/or choose a different free port, but keep deployment as
+          VirtualizeMCPDemo.
 
           Your task:
           1. Use the jira-remote MCP tools to read the Jira user story for the ticket above.
@@ -231,6 +227,9 @@ jobs:
              HTTP method(s), request/response schema, port, and any behavior rules.
           3. Use the virtualize MCP tools to create and deploy a virtual service that
              satisfies the requirements found in the story.
+             - After deployment, use virtualize list/describe output to get the deployed base
+               path that the server actually reports for the service, and use that base path
+               when constructing FULL_TEST_URL. Never guess or synthesize deployment prefixes.
              - If creating multiple request-response interactions, download the files after
                the initial virtual asset creation and follow the readme to enrich the virtual 
                service with the additional interactions. 
@@ -266,6 +265,7 @@ jobs:
                including the deployment prefix, the full endpoint path, and representative
                query parameters from the Jira story. This must be a URL that the deployed
                virtual service will respond to with HTTP 200.
+             - FULL_TEST_URL must use deployment prefix /VirtualizeMCPDemo.
              Omit all two lines if Dry run is true.
 
           Guidelines:
@@ -385,7 +385,34 @@ jobs:
             exit 1
           fi
 
+          effective_url="$full_url"
+
+          # If deployment path is wrong, SOAVirt returns 404 with "Enabled proxies".
+          # Retry once by replacing the first URL path segment with the first active proxy path.
+          if [ "$status_code" = '404' ] && grep -q 'Enabled proxies:' "$body_file"; then
+            candidate_prefix="$(grep -E ':[[:space:]]+/[^[:space:]]+' "$body_file" | head -n1 | sed -E 's#^.*:[[:space:]]+(/[^[:space:]]+).*$#\1#')"
+            if [ -n "${candidate_prefix:-}" ]; then
+              origin="$(printf '%s' "$full_url" | sed -E 's#^(https?://[^/]+).*$#\1#')"
+              path_qs="$(printf '%s' "$full_url" | sed -E 's#^https?://[^/]+##')"
+              current_prefix="$(printf '%s' "$path_qs" | sed -E 's#^/([^/?]+).*$#/\1#')"
+              suffix="${path_qs#${current_prefix}}"
+              retry_url="${origin}${candidate_prefix}${suffix}"
+
+              if [ "$retry_url" != "$full_url" ]; then
+                echo "Path resolution fallback: retrying with enabled proxy path"
+                echo "Retry URL: $retry_url"
+                if ! status_code="$(curl -sS --connect-timeout 10 --max-time 30 -o "$body_file" -w '%{http_code}' -X "$test_method" "$retry_url")"; then
+                  echo "FAIL: Retry HTTP request failed."
+                  rm -f "$body_file"
+                  exit 1
+                fi
+                effective_url="$retry_url"
+              fi
+            fi
+          fi
+
           echo "Response status: $status_code"
+          echo "Effective URL: $effective_url"
           if [ "$status_code" = '200' ]; then
             echo "PASS: Virtual service returned HTTP 200."
           else
