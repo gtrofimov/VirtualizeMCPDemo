@@ -24,9 +24,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: create-virtual-service-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   create-virtual-service:
     name: Read Jira Story → Create Virtual Service
+    timeout-minutes: 20
     # -----------------------------------------------------------------------
     # IMPORTANT: this job must run on the self-hosted runner that has
     # Parasoft Virtualize (and its MCP Server) running locally.
@@ -36,9 +41,6 @@ jobs:
     runs-on: [self-hosted, Linux]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
       # -----------------------------------------------------------------------
       # Resolve the Jira ticket — from workflow_dispatch input, or by
       # extracting a Jira-style key (e.g. PROJ-123) from the commit message.
@@ -68,21 +70,40 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # -----------------------------------------------------------------------
-      # Install GitHub Copilot CLI
-      # -----------------------------------------------------------------------
-      - name: Set up Node.js
+      - name: Checkout repository
         if: steps.resolve_ticket.outputs.skip != 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
+        uses: actions/checkout@v5
 
-      - name: Install Copilot CLI
+      - name: Check Copilot CLI availability
+        id: copilot_cli
         if: steps.resolve_ticket.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g @github/copilot
+          if command -v copilot >/dev/null 2>&1; then
+            echo "Copilot CLI already available: $(copilot --version | head -n 1)"
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Copilot CLI not found on runner."
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Install GitHub Copilot CLI
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js
+        if: steps.resolve_ticket.outputs.skip != 'true' && steps.copilot_cli.outputs.installed != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Copilot CLI
+        if: steps.resolve_ticket.outputs.skip != 'true' && steps.copilot_cli.outputs.installed != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g --no-audit --no-fund @github/copilot
 
       # -----------------------------------------------------------------------
       # Write the MCP server configuration for Copilot CLI.
@@ -124,6 +145,28 @@ jobs:
           }
           EOF
 
+      - name: Preflight MCP connectivity
+        if: steps.resolve_ticket.outputs.skip != 'true'
+        shell: bash
+        env:
+          VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
+        run: |
+          set -euo pipefail
+          check_url() {
+            local name="$1"
+            local url="$2"
+            local code
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 12 "$url" || true)"
+            if [ "$code" = "000" ]; then
+              echo "FAIL: $name is unreachable: $url"
+              exit 1
+            fi
+            echo "OK: $name reachable (HTTP $code): $url"
+          }
+
+          check_url "Atlassian MCP" "https://mcp.atlassian.com/v1/mcp"
+          check_url "Virtualize MCP" "$VIRTUALIZE_MCP_URL"
+
       # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
       # service via Virtualize MCP, and emit FULL_TEST_URL so the verification
@@ -132,6 +175,7 @@ jobs:
       - name: Run Copilot Agent - Create Virtual Service from Jira Story
         id: create_vs
         if: steps.resolve_ticket.outputs.skip != 'true'
+        timeout-minutes: 12
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
@@ -235,19 +279,52 @@ jobs:
           prompt="${prompt/__TICKET__/$ticket}"
           prompt="${prompt/__DRY_RUN__/$dry_run}"
 
+          output_file="$(mktemp)"
+          start_ts="$(date +%s)"
+
+          heartbeat() {
+            while true; do
+              elapsed=$(( $(date +%s) - start_ts ))
+              echo "Copilot still running (${elapsed}s elapsed)..."
+              sleep 30
+            done
+          }
+
+          heartbeat &
+          hb_pid=$!
+
+          copilot_timeout_seconds=660
+          echo "Starting Copilot (internal timeout: ${copilot_timeout_seconds}s)..."
+
           set +e
-          output="$(copilot -p "$prompt" --yolo --no-ask-user 2>&1)"
-          copilot_exit=$?
+          if command -v timeout >/dev/null 2>&1; then
+            timeout --signal=TERM "$copilot_timeout_seconds" copilot -p "$prompt" --yolo --no-ask-user 2>&1 | tee "$output_file"
+            copilot_exit=${PIPESTATUS[0]}
+          else
+            copilot -p "$prompt" --yolo --no-ask-user 2>&1 | tee "$output_file"
+            copilot_exit=${PIPESTATUS[0]}
+          fi
           set -e
 
-          printf '%s\n' "$output"
+          kill "$hb_pid" 2>/dev/null || true
+          wait "$hb_pid" 2>/dev/null || true
+
+          end_ts="$(date +%s)"
+          elapsed_total=$(( end_ts - start_ts ))
+          echo "Copilot completed in ${elapsed_total}s (exit code: $copilot_exit)."
+
+          if [ "$copilot_exit" -eq 124 ]; then
+            echo "Copilot timed out after ${copilot_timeout_seconds}s."
+            exit 124
+          fi
+
           if [ "$copilot_exit" -ne 0 ]; then
             echo "Copilot CLI exited with code $copilot_exit. See output above for details."
             exit "$copilot_exit"
           fi
 
-          test_method_line="$(printf '%s\n' "$output" | grep -m1 '^TEST_METHOD=' || true)"
-          full_test_url_line="$(printf '%s\n' "$output" | grep -m1 '^FULL_TEST_URL=' || true)"
+          test_method_line="$(grep -m1 '^TEST_METHOD=' "$output_file" || true)"
+          full_test_url_line="$(grep -m1 '^FULL_TEST_URL=' "$output_file" || true)"
 
           if [ -z "$full_test_url_line" ]; then
             echo "No FULL_TEST_URL found in agent output - verification step will be skipped."
@@ -265,6 +342,24 @@ jobs:
             echo "full_test_url=$full_test_url" >> "$GITHUB_OUTPUT"
           fi
 
+          {
+            echo "### Create Virtual Service Diagnostics"
+            echo "- Copilot duration (seconds): ${elapsed_total}"
+            echo "- Copilot exit code: ${copilot_exit}"
+            if [ -n "$test_method_line" ]; then
+              echo "- TEST_METHOD line: found"
+            else
+              echo "- TEST_METHOD line: not found"
+            fi
+            if [ -n "$full_test_url_line" ]; then
+              echo "- FULL_TEST_URL line: found"
+            else
+              echo "- FULL_TEST_URL line: not found"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          rm -f "$output_file"
+
       # -----------------------------------------------------------------------
       # Verification step: make the actual HTTP call and assert HTTP 200.
       # Uses the full test URL emitted by the create step — no separate
@@ -272,6 +367,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Verify Virtual Service Returns HTTP 200
         if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.full_test_url != ''
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
@@ -283,7 +379,7 @@ jobs:
           echo "Sending $test_method $full_url"
 
           body_file="$(mktemp)"
-          if ! status_code="$(curl -sS -o "$body_file" -w '%{http_code}' -X "$test_method" "$full_url")"; then
+          if ! status_code="$(curl -sS --connect-timeout 10 --max-time 30 -o "$body_file" -w '%{http_code}' -X "$test_method" "$full_url")"; then
             echo "FAIL: HTTP request failed."
             rm -f "$body_file"
             exit 1
