@@ -33,7 +33,7 @@ jobs:
     # Register your runner under Settings → Actions → Runners and replace
     # the label below with any additional labels you assigned to it.
     # -----------------------------------------------------------------------
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
 
     steps:
       - name: Checkout repository
@@ -47,22 +47,26 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve Jira ticket
         id: resolve_ticket
-        shell: powershell
+        shell: bash
         run: |
-          $ticket = "${{ inputs.jira_ticket }}"
-          if (-not $ticket) {
-            $commitMsg = "${{ github.event.head_commit.message }}"
-            $match = [regex]::Match($commitMsg, '\b[A-Z]{2,10}-\d+\b')
-            $ticket = if ($match.Success) { $match.Value } else { "" }
-          }
-          if (-not $ticket) {
-            Write-Host "No Jira ticket found in commit message - skipping."
-            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host "Resolved ticket: $ticket"
-            "ticket=$ticket" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
+          set -euo pipefail
+          ticket="${{ inputs.jira_ticket }}"
+          if [ -z "${ticket:-}" ]; then
+            commit_msg="${{ github.event.head_commit.message }}"
+            if [[ "$commit_msg" =~ [A-Z]{2,10}-[0-9]+ ]]; then
+              ticket="${BASH_REMATCH[0]}"
+            else
+              ticket=""
+            fi
+          fi
+          if [ -z "${ticket:-}" ]; then
+            echo "No Jira ticket found in commit message - skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Resolved ticket: $ticket"
+            echo "ticket=$ticket" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # -----------------------------------------------------------------------
       # Install GitHub Copilot CLI
@@ -75,8 +79,10 @@ jobs:
 
       - name: Install Copilot CLI
         if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
-        run: npm install -g @github/copilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g @github/copilot
 
       # -----------------------------------------------------------------------
       # Write the MCP server configuration for Copilot CLI.
@@ -85,30 +91,38 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Configure MCP servers
         if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
+        shell: bash
         env:
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
           VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
         run: |
-          $configDir = "$env:USERPROFILE\.copilot"
-          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-          $config = [ordered]@{
-            mcpServers = [ordered]@{
-              'jira-remote' = [ordered]@{
-                type    = 'http'
-                url     = 'https://mcp.atlassian.com/v1/mcp'
-                headers = @{ Authorization = "Basic $env:ATLASSIAN_BASIC_AUTH" }
-                env     = @{ ATLASSIAN_BASE_URL = 'https://parasoft-demo.atlassian.net' }
-              }
-              virtualize = [ordered]@{
-                type    = 'http'
-                url     = $env:VIRTUALIZE_MCP_URL
-                headers = @{ Authorization = "Basic $env:VIRTUALIZE_AUTH_TOKEN" }
+          set -euo pipefail
+          config_dir="$HOME/.copilot"
+          mkdir -p "$config_dir"
+          cat > "$config_dir/mcp-config.json" <<EOF
+          {
+            "mcpServers": {
+              "jira-remote": {
+                "type": "http",
+                "url": "https://mcp.atlassian.com/v1/mcp",
+                "headers": {
+                  "Authorization": "Basic ${ATLASSIAN_BASIC_AUTH}"
+                },
+                "env": {
+                  "ATLASSIAN_BASE_URL": "https://parasoft-demo.atlassian.net"
+                }
+              },
+              "virtualize": {
+                "type": "http",
+                "url": "${VIRTUALIZE_MCP_URL}",
+                "headers": {
+                  "Authorization": "Basic ${VIRTUALIZE_AUTH_TOKEN}"
+                }
               }
             }
           }
-          $config | ConvertTo-Json -Depth 10 | Set-Content "$configDir\mcp-config.json" -Encoding utf8
+          EOF
 
       # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
@@ -121,13 +135,16 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        shell: powershell
+        shell: bash
         run: |
-          $ticket = "${{ steps.resolve_ticket.outputs.ticket }}"
-          $dryRun = "${{ inputs.dry_run }}"
-          if (-not $dryRun) { $dryRun = "false" }
-          $prompt = @"
-          Jira ticket: $ticket. Dry run: $dryRun.
+          set -euo pipefail
+          ticket="${{ steps.resolve_ticket.outputs.ticket }}"
+          dry_run="${{ inputs.dry_run }}"
+          if [ -z "${dry_run:-}" ]; then
+            dry_run="false"
+          fi
+          prompt=$(cat <<'EOF'
+          Jira ticket: __TICKET__. Dry run: __DRY_RUN__.
 
           You are an expert DevOps automation engineer with deep knowledge of both
           Atlassian Jira and Parasoft Virtualize.
@@ -213,32 +230,40 @@ jobs:
           - If Dry run is true, describe what you would create but do not call any
             Virtualize write or deploy tools.
           - Always confirm whether successful deployment occurred before finishing.
-          "@
-          $ErrorActionPreference = 'Continue'
-          $output = copilot -p $prompt `
-            --yolo `
-            --no-ask-user
-          $copilotExit = $LASTEXITCODE
-          $output
-          if ($copilotExit -ne 0) {
-            Write-Error "Copilot CLI exited with code $copilotExit. See output above for details."
-            exit $copilotExit
-          }
-          $testMethodLine = $output | Where-Object { $_ -match '^TEST_METHOD=' }
-          $fullTestUrlLine = $output | Where-Object { $_ -match '^FULL_TEST_URL=' }
-          if (-not $fullTestUrlLine) {
-            Write-Host "No FULL_TEST_URL found in agent output - verification step will be skipped."
-          }
-          if ($testMethodLine) {
-            $testMethod = ($testMethodLine -replace '^TEST_METHOD=', '').Trim()
-            Write-Host "Captured test method: $testMethod"
-            "test_method=$testMethod" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-          if ($fullTestUrlLine) {
-            $fullTestUrl = ($fullTestUrlLine -replace '^FULL_TEST_URL=', '').Trim()
-            Write-Host "Captured full test URL: $fullTestUrl"
-            "full_test_url=$fullTestUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
+          EOF
+          )
+          prompt="${prompt/__TICKET__/$ticket}"
+          prompt="${prompt/__DRY_RUN__/$dry_run}"
+
+          set +e
+          output="$(copilot -p "$prompt" --yolo --no-ask-user 2>&1)"
+          copilot_exit=$?
+          set -e
+
+          printf '%s\n' "$output"
+          if [ "$copilot_exit" -ne 0 ]; then
+            echo "Copilot CLI exited with code $copilot_exit. See output above for details."
+            exit "$copilot_exit"
+          fi
+
+          test_method_line="$(printf '%s\n' "$output" | grep -m1 '^TEST_METHOD=' || true)"
+          full_test_url_line="$(printf '%s\n' "$output" | grep -m1 '^FULL_TEST_URL=' || true)"
+
+          if [ -z "$full_test_url_line" ]; then
+            echo "No FULL_TEST_URL found in agent output - verification step will be skipped."
+          fi
+          if [ -n "$test_method_line" ]; then
+            test_method="${test_method_line#TEST_METHOD=}"
+            test_method="$(echo "$test_method" | xargs)"
+            echo "Captured test method: $test_method"
+            echo "test_method=$test_method" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$full_test_url_line" ]; then
+            full_test_url="${full_test_url_line#FULL_TEST_URL=}"
+            full_test_url="$(echo "$full_test_url" | xargs)"
+            echo "Captured full test URL: $full_test_url"
+            echo "full_test_url=$full_test_url" >> "$GITHUB_OUTPUT"
+          fi
 
       # -----------------------------------------------------------------------
       # Verification step: make the actual HTTP call and assert HTTP 200.
@@ -247,27 +272,31 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Verify Virtual Service Returns HTTP 200
         if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.full_test_url != ''
-        shell: powershell
+        shell: bash
         run: |
-          $fullUrl    = "${{ steps.create_vs.outputs.full_test_url }}"
-          $testMethod = "${{ steps.create_vs.outputs.test_method }}"
-          if (-not $testMethod) { $testMethod = 'GET' }
-          Write-Host "Sending $testMethod $fullUrl"
-          $params = @{
-            Uri             = $fullUrl
-            Method          = $testMethod
-            UseBasicParsing = $true
-          }
-          try {
-            $response = Invoke-WebRequest @params -ErrorAction Stop
-            Write-Host "Response status: $($response.StatusCode)"
-            if ($response.StatusCode -eq 200) {
-              Write-Host "PASS: Virtual service returned HTTP 200."
-            } else {
-              Write-Error "FAIL: Expected 200 but received $($response.StatusCode)."
-              exit 1
-            }
-          } catch {
-            Write-Error "FAIL: HTTP request threw an exception - $_"
+          set -euo pipefail
+          full_url="${{ steps.create_vs.outputs.full_test_url }}"
+          test_method="${{ steps.create_vs.outputs.test_method }}"
+          if [ -z "${test_method:-}" ]; then
+            test_method='GET'
+          fi
+          echo "Sending $test_method $full_url"
+
+          body_file="$(mktemp)"
+          if ! status_code="$(curl -sS -o "$body_file" -w '%{http_code}' -X "$test_method" "$full_url")"; then
+            echo "FAIL: HTTP request failed."
+            rm -f "$body_file"
             exit 1
-          }
+          fi
+
+          echo "Response status: $status_code"
+          if [ "$status_code" = '200' ]; then
+            echo "PASS: Virtual service returned HTTP 200."
+          else
+            echo "FAIL: Expected 200 but received $status_code."
+            echo "Response body:"
+            cat "$body_file"
+            rm -f "$body_file"
+            exit 1
+          fi
+          rm -f "$body_file"
