@@ -157,18 +157,18 @@ jobs:
             Write-Error "Copilot CLI exited with code $copilotExit. See output above for details."
             exit $copilotExit
           }
-          $testMethodLine = $output | Where-Object { $_ -match '^TEST_METHOD=' }
-          $fullTestUrlLine = $output | Where-Object { $_ -match '^FULL_TEST_URL=' }
+          $testMethodLine = $output | Where-Object { $_ -match 'TEST_METHOD=' }
+          $fullTestUrlLine = $output | Where-Object { $_ -match 'FULL_TEST_URL=' }
           if (-not $fullTestUrlLine) {
             Write-Host "No FULL_TEST_URL found in agent output - verification step will be skipped."
           }
           if ($testMethodLine) {
-            $testMethod = ($testMethodLine -replace '^TEST_METHOD=', '').Trim()
+            $testMethod = ($testMethodLine -replace '.*TEST_METHOD=', '').Trim()
             Write-Host "Captured test method: $testMethod"
             "test_method=$testMethod" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
           if ($fullTestUrlLine) {
-            $fullTestUrl = ($fullTestUrlLine -replace '^FULL_TEST_URL=', '').Trim()
+            $fullTestUrl = ($fullTestUrlLine -replace '.*FULL_TEST_URL=', '').Trim()
             Write-Host "Captured full test URL: $fullTestUrl"
             "full_test_url=$fullTestUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
