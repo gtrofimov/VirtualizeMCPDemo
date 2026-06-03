@@ -126,32 +126,24 @@ jobs:
           $ticket = "${{ steps.resolve_ticket.outputs.ticket }}"
           $dryRun = "${{ inputs.dry_run }}"
           if (-not $dryRun) { $dryRun = "false" }
-          # Read skill files from the checked-out repo so the agent always uses
-          # the current, authoritative guidance without duplicating it here.
-          $skillRoot = ".github/skills"
-          $skillFiles = @(
-            "jira-story-virtual-service/SKILL.md",
-            "virtualize-mcp-general-rules/SKILL.md",
-            "virtualize-correlation-matching-rules/SKILL.md",
-            "virtualize-inline-expressions/SKILL.md",
-            "virtualize-asset-validation-instructions/SKILL.md"
-          )
-          $skillsBlock = ($skillFiles | ForEach-Object {
-            $path = "$skillRoot/$_"
-            $content = Get-Content $path -Raw -ErrorAction Stop
-            "=== $path ===`n$content"
-          }) -join "`n`n"
-
+          # Instruct the agent to read the skill files directly from the checked-out
+          # repo rather than injecting their raw content into the prompt. This avoids
+          # PowerShell 5.1 argument-quoting failures that occur when multi-line strings
+          # containing double-quotes and flag-like tokens (e.g. -X from curl examples)
+          # are passed to external CLIs.
           $prompt = @"
           Jira ticket: $ticket. Dry run: $dryRun.
 
-          Read and follow ALL of the skill instructions below precisely before taking any action.
-          They are the authoritative source of truth for how to complete this task.
+          Before taking any action, read each of the following skill files in full
+          from the working directory, then follow their instructions precisely:
+            .github/skills/jira-story-virtual-service/SKILL.md
+            .github/skills/virtualize-mcp-general-rules/SKILL.md
+            .github/skills/virtualize-correlation-matching-rules/SKILL.md
+            .github/skills/virtualize-inline-expressions/SKILL.md
+            .github/skills/virtualize-asset-validation-instructions/SKILL.md
 
-          $skillsBlock
-
-          Now execute the jira-story-virtual-service workflow for the Jira ticket above,
-          following every guardrail and procedure defined in the skills.
+          Then execute the jira-story-virtual-service workflow for the Jira ticket above,
+          following every guardrail and procedure defined in those skill files.
           If Dry run is true, describe what you would create but do not call any
           Virtualize write or deploy tools.
           "@
