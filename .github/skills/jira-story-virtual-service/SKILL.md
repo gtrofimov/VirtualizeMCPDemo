@@ -64,7 +64,7 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 - Create and deploy service via Virtualize MCP
 - Leverage virtualize-* skills as needed for request/response file enrichment
   - When constructing response content, inspect each response property for fields like dateTimes, timestamps, auto-generated ID characteristics, or any request parameters that appear to be echoed back in the response. For any such field, apply inline expressions per the virtualize-inline-expressions skill rather than hard-coding the example value from the story.
-- Include at least one catch-all `200` response so requests with values deviating from story examples still receive `200`
+- Include at least one catch-all `200` response for valid request shapes so requests with values deviating from examples still receive a `200` response.
 
 4. Verification and final output
 - Confirm deployment success by testing the endpoint before finishing
