@@ -32,21 +32,12 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 2. Service naming guardrail
 - Infer service name from the Jira story when confidence is high
 - If confidence is low, use the Jira ticket key as the default name
-- Call `manageVirtualServices action=list` to enumerate all MCP-managed virtual services; each entry is of the form `<serviceName> (Base path: ...)` — collect the set of existing service names from these entries
-- Note: a single `list` call satisfies the uniqueness checks for guardrails 2, 3, and 4 simultaneously; do not make redundant calls
-- If the inferred name already exists, append `-1`, `-2`, etc. until the name is unique
 
 3. Port selection guardrail
 - If no confident port is present in the story, default to `38000`
-- Call `manageVirtualServices action=list` to enumerate all MCP-managed virtual services; each entry includes a base path URL of the form `http://localhost:{port}/{deployment}` — parse the port from each base path URL to build the set of occupied ports
-- Note: only services created through the MCP tool are visible; ports used by non-MCP services on the same Virtualize instance cannot be detected this way
-- Starting from the inferred or default port, choose the lowest port not already present in the occupied set
-- Never reuse an occupied port
 
 4. Deployment prefix guardrail
-- If no confident deployment prefix is present, default to repo name `VirtualizeMCPDemo`
-- From the `manageVirtualServices action=list` result (already collected for guardrails 2 and 3), parse the deployment path segment from each base path URL of the form `http://localhost:{port}/{deployment}` to build the set of occupied deployment prefixes
-- If the inferred or default deployment prefix already exists, append `-1`, `-2`, etc. until the prefix is unique
+- If no confident deployment prefix is present, default to the repo name `VirtualizeMCPDemo`
 
 ## Procedure
 
@@ -72,7 +63,7 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 3. Create virtual service
 - Create and deploy service via Virtualize MCP
 - Leverage virtualize-* skills as needed for request/response file enrichment
-  - When constructing response content, inspect each response property for fields like dateTimes, timestamps, and auto-generated ID characteristics. For any such field, apply inline expressions per the virtualize-inline-expressions skill rather than hard-coding the example value from the story.
+  - When constructing response content, inspect each response property for fields like dateTimes, timestamps, auto-generated ID characteristics, or any request parameters that appear to be echoed back in the response. For any such field, apply inline expressions per the virtualize-inline-expressions skill rather than hard-coding the example value from the story.
 - Include at least one catch-all `200` response so requests with values deviating from story examples still receive `200`
 
 4. Verification and final output

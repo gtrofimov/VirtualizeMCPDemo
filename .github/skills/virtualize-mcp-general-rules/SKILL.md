@@ -10,6 +10,35 @@ These rules apply whenever using the `manageVirtualServices` MCP tool (or any Vi
 
 ---
 
+## Pre-Creation Uniqueness Checks
+
+Before creating any virtual service, run a single `manageVirtualServices action=list` call to enumerate all existing MCP-managed services. Each entry is of the form:
+
+```
+<serviceName> (Base path: http://localhost:{port}/{deployment})
+```
+
+From this single response, collect three sets:
+- **Occupied names** — the `<serviceName>` portion of each entry
+- **Occupied ports** — the `{port}` segment parsed from each base path URL
+- **Occupied deployment prefixes** — the `{deployment}` segment parsed from each base path URL
+
+One `list` call satisfies all three checks — do not make redundant calls.
+
+> Note: only services created through the MCP tool are visible; names, ports, and deployment prefixes used by non-MCP services on the same Virtualize instance cannot be detected this way.
+
+### Service name uniqueness
+- If the intended service name already exists in the occupied set, append `-1`, `-2`, etc. until the name is unique.
+
+### Port uniqueness
+- Starting from the intended or default port (`38000`), choose the lowest port not present in the occupied set.
+- Never reuse an occupied port.
+
+### Deployment prefix uniqueness
+- If the intended deployment prefix already exists in the occupied set, append `-1`, `-2`, etc. until the prefix is unique.
+
+---
+
 ## Request Content Path Format
 
 When calling `manageVirtualServices` with `action=create` or `action=update`, the `requestContent` field must contain **only the raw API path** — never the deployment prefix.
