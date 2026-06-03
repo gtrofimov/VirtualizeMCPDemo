@@ -163,12 +163,14 @@ jobs:
             Write-Host "No FULL_TEST_URL found in agent output - verification step will be skipped."
           }
           if ($testMethodLine) {
-            $testMethod = ($testMethodLine -replace '.*TEST_METHOD=', '').Trim()
+            $testMethodLine -match 'TEST_METHOD=`?([^`\s]+)' | Out-Null
+            $testMethod = $Matches[1]
             Write-Host "Captured test method: $testMethod"
             "test_method=$testMethod" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
           if ($fullTestUrlLine) {
-            $fullTestUrl = ($fullTestUrlLine -replace '.*FULL_TEST_URL=', '').Trim()
+            $fullTestUrlLine -match 'FULL_TEST_URL=`?([^`\s]+)' | Out-Null
+            $fullTestUrl = $Matches[1]
             Write-Host "Captured full test URL: $fullTestUrl"
             "full_test_url=$fullTestUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
