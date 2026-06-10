@@ -1,9 +1,5 @@
 name: Create Virtual Service from Jira Story
 
-# ---------------------------------------------------------------------------
-# Triggered manually with a Jira ticket number, or automatically on push
-# when the commit message contains a Jira-style ticket ID (e.g. PROJ-123).
-# ---------------------------------------------------------------------------
 on:
   workflow_dispatch:
     inputs:
@@ -11,64 +7,20 @@ on:
         description: 'Jira ticket number (e.g., PROJ-123)'
         required: true
         type: string
-      dry_run:
-        description: 'Dry run — plan only, do not deploy the virtual service'
-        required: false
-        default: false
-        type: boolean
-  push:
-    branches:
-      - main
 
-# Minimal token permissions — read-only access to checkout the repository.
 permissions:
   contents: read
 
 jobs:
   create-virtual-service:
     name: Read Jira Story → Create Virtual Service
-    # -----------------------------------------------------------------------
-    # IMPORTANT: this job must run on the self-hosted runner that has
-    # Parasoft Virtualize (and its MCP Server) running locally.
-    # Register your runner under Settings → Actions → Runners and replace
-    # the label below with any additional labels you assigned to it.
-    # -----------------------------------------------------------------------
     runs-on: self-hosted
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------------
-      # Resolve the Jira ticket — from workflow_dispatch input, or by
-      # extracting a Jira-style key (e.g. PROJ-123) from the commit message.
-      # The step exits early (skipping the rest of the job) if no ticket is
-      # found on a push event.
-      # -----------------------------------------------------------------------
-      - name: Resolve Jira ticket
-        id: resolve_ticket
-        run: |
-          ticket="${{ inputs.jira_ticket }}"
-          if [ -z "$ticket" ]; then
-            commit_msg="${{ github.event.head_commit.message }}"
-            ticket=$(echo "$commit_msg" | grep -oE '\b[A-Z]{2,10}-[0-9]+\b' | head -1)
-          fi
-          if [ -z "$ticket" ]; then
-            echo "No Jira ticket found in commit message - skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Resolved ticket: $ticket"
-            echo "ticket=$ticket" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # -----------------------------------------------------------------------
-      # Write the MCP server configuration for Copilot CLI.
-      # Copilot CLI reads MCP servers from ~/.copilot/mcp-config.json.
-      # Both secrets are pre-computed base64(user:token) strings.
-      # -----------------------------------------------------------------------
       - name: Configure MCP servers
-        if: steps.resolve_ticket.outputs.skip != 'true'
         env:
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
@@ -93,81 +45,67 @@ jobs:
           }
           EOF
 
-      # -----------------------------------------------------------------------
-      # Agent step 1: Read the Jira story, create and deploy the virtual
-      # service via Virtualize MCP, and emit FULL_TEST_URL so the verification
-      # step knows where the service is listening.
-      # -----------------------------------------------------------------------
-      - name: Run Copilot Agent - Create Virtual Service from Jira Story
-        id: create_vs
-        if: steps.resolve_ticket.outputs.skip != 'true'
+      - name: Step 1 - Read Jira story
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: |
-          ticket="${{ steps.resolve_ticket.outputs.ticket }}"
-          dry_run="${{ inputs.dry_run }}"
-          [ -z "$dry_run" ] && dry_run="false"
-          # Instruct the agent to read the skill files directly from the checked-out
-          # repo rather than injecting their raw content into the prompt. This avoids
-          # shell argument-quoting failures that occur when multi-line strings
-          # containing double-quotes and flag-like tokens (e.g. -X from curl examples)
-          # are passed to external CLIs.
-          prompt=$(printf '%s\n\n%s\n%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s\n%s\n%s' \
-            "Jira ticket: ${ticket}. Dry run: ${dry_run}." \
-            "Before taking any action, read each of the following skill files in full" \
-            "from the working directory, then follow their instructions precisely:" \
+          ticket="${{ inputs.jira_ticket }}"
+          prompt=$(printf '%s\n  %s\n\n%s' \
+            "Read the following skill file in full before taking any action:" \
             ".github/skills/jira-story-virtual-service/SKILL.md" \
+            "Then use the jira-remote MCP to fetch Jira ticket ${ticket} and output the full user story.")
+          set +e
+          output=$(copilot -p "$prompt" --yolo --no-ask-user)
+          exit_code=$?
+          set -e
+          echo "$output"
+          echo "$output" > story.txt
+          if [ $exit_code -ne 0 ]; then
+            echo "::error::Copilot CLI exited with code $exit_code."
+            exit $exit_code
+          fi
+
+      - name: Step 2 - Create virtual service via MCP
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: |
+          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n\n%s\n\n%s' \
+            "Read each of the following skill files in full before taking any action:" \
             ".github/skills/virtualize-mcp-general-rules/SKILL.md" \
             ".github/skills/virtualize-correlation-matching-rules/SKILL.md" \
             ".github/skills/virtualize-inline-expressions/SKILL.md" \
             ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-            "Then execute the jira-story-virtual-service workflow for the Jira ticket above," \
-            "following every guardrail and procedure defined in those skill files." \
-            "If Dry run is true, describe what you would create but do not call any" \
-            "Virtualize write or deploy tools.")
+            "Using the virtualize MCP, create and deploy a virtual service based on this user story:" \
+            "$(cat story.txt)")
           set +e
           output=$(copilot -p "$prompt" --yolo --no-ask-user)
-          copilot_exit=$?
+          exit_code=$?
           set -e
           echo "$output"
-          if [ $copilot_exit -ne 0 ]; then
-            echo "::error::Copilot CLI exited with code $copilot_exit. See output above for details."
-            exit $copilot_exit
-          fi
-          test_method_line=$(echo "$output" | grep 'TEST_METHOD=' | head -1 || true)
-          full_test_url_line=$(echo "$output" | grep 'FULL_TEST_URL=' | head -1 || true)
-          if [ -z "$full_test_url_line" ]; then
-            echo "No FULL_TEST_URL found in agent output - verification step will be skipped."
-          fi
-          if [ -n "$test_method_line" ]; then
-            test_method=$(echo "$test_method_line" | grep -oP 'TEST_METHOD=\K[^\s`]+')
-            echo "Captured test method: $test_method"
-            echo "test_method=$test_method" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -n "$full_test_url_line" ]; then
-            full_test_url=$(echo "$full_test_url_line" | grep -oP 'FULL_TEST_URL=\K[^\s`]+')
-            echo "Captured full test URL: $full_test_url"
-            echo "full_test_url=$full_test_url" >> "$GITHUB_OUTPUT"
+          echo "$output" > pva.txt
+          if [ $exit_code -ne 0 ]; then
+            echo "::error::Copilot CLI exited with code $exit_code."
+            exit $exit_code
           fi
 
-      # -----------------------------------------------------------------------
-      # Verification step: make the actual HTTP call and assert HTTP 200.
-      # Uses the full test URL emitted by the create step — no separate
-      # agent invocation needed.
-      # -----------------------------------------------------------------------
-      - name: Verify Virtual Service Returns HTTP 200
-        if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.full_test_url != ''
+      - name: Step 3 - Verify virtual service
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: |
-          full_url="${{ steps.create_vs.outputs.full_test_url }}"
-          test_method="${{ steps.create_vs.outputs.test_method }}"
-          if [ -z "$test_method" ]; then test_method="GET"; fi
-          echo "Sending $test_method $full_url"
-          status_code=$(curl -sk -o /dev/null -w "%{http_code}" -X "$test_method" "$full_url")
-          echo "Response status: $status_code"
-          if [ "$status_code" = "200" ]; then
-            echo "PASS: Virtual service returned HTTP 200."
-          else
-            echo "::error::FAIL: Expected 200 but received $status_code."
-            exit 1
+          prompt=$(printf '%s\n  %s\n\n%s\n\n%s' \
+            "Read the following skill file in full before taking any action:" \
+            ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
+            "Using the virtualize MCP, verify that the virtual service described below is deployed and responding correctly:" \
+            "$(cat pva.txt)")
+          set +e
+          output=$(copilot -p "$prompt" --yolo --no-ask-user)
+          exit_code=$?
+          set -e
+          echo "$output"
+          if [ $exit_code -ne 0 ]; then
+            echo "::error::Copilot CLI exited with code $exit_code."
+            exit $exit_code
           fi
