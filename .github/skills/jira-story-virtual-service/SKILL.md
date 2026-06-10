@@ -77,6 +77,8 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 - End with exact lines:
   - `TEST_METHOD=<METHOD>`
   - `FULL_TEST_URL=http://hostname:port/deployment/full/path?param=value`
+  - `FULL_EXTERNAL_URL=http://<resolved-external-ip>:port/deployment/full/path?param=value`
+    - Resolve the external IP from the base path URL returned by the `manageVirtualServices create` response (e.g. the example invocation URL it returns). Use that IP verbatim — do not substitute `localhost` or guess the hostname.
 
 ## Suggested Invocation
 
