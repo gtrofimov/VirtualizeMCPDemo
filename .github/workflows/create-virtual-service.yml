@@ -51,15 +51,16 @@ jobs:
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: |
           ticket="${{ inputs.jira_ticket }}"
-          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s' \
+          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s\n\n%s' \
             "Read each of the following skill files in full before taking any action:" \
             ".github/skills/jira-story-virtual-service/SKILL.md" \
             ".github/skills/virtualize-mcp-general-rules/SKILL.md" \
             ".github/skills/virtualize-correlation-matching-rules/SKILL.md" \
             ".github/skills/virtualize-inline-expressions/SKILL.md" \
             ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-            "Use the jira-remote MCP to fetch Jira ticket ${ticket}." \
-            "Then use the virtualize MCP to create and deploy a virtual service for that story.")
+            "Use the jira-remote MCP tool to fetch Jira ticket ${ticket}." \
+            "Then use the manageVirtualServices MCP tool from the virtualize server to create and deploy a virtual service for that story." \
+            "IMPORTANT: use the MCP tools directly. Do NOT attempt to call MCP servers via shell, curl, npx, or Python scripts.")
           echo "[$(date '+%H:%M:%S')] Starting copilot agent..."
           set +e
           copilot -p "$prompt" --yolo --no-ask-user < /dev/null | tee pva.txt
