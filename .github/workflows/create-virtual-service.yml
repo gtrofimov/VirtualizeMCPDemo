@@ -45,42 +45,23 @@ jobs:
           }
           EOF
 
-      - name: Step 1 - Read Jira story
+      - name: Step 1 - Read Jira story and create virtual service
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: |
           ticket="${{ inputs.jira_ticket }}"
-          prompt=$(printf '%s\n  %s\n\n%s' \
-            "Read the following skill file in full before taking any action:" \
-            ".github/skills/jira-story-virtual-service/SKILL.md" \
-            "Then use the jira-remote MCP to fetch Jira ticket ${ticket} and output the full user story.")
-          set +e
-          output=$(copilot -p "$prompt" --yolo --no-ask-user)
-          exit_code=$?
-          set -e
-          echo "$output"
-          echo "$output" > story.txt
-          if [ $exit_code -ne 0 ]; then
-            echo "::error::Copilot CLI exited with code $exit_code."
-            exit $exit_code
-          fi
-
-      - name: Step 2 - Create virtual service via MCP
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        run: |
-          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n\n%s\n\n%s' \
+          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s' \
             "Read each of the following skill files in full before taking any action:" \
+            ".github/skills/jira-story-virtual-service/SKILL.md" \
             ".github/skills/virtualize-mcp-general-rules/SKILL.md" \
             ".github/skills/virtualize-correlation-matching-rules/SKILL.md" \
             ".github/skills/virtualize-inline-expressions/SKILL.md" \
             ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-            "Using the virtualize MCP, create and deploy a virtual service based on this user story:" \
-            "$(cat story.txt)")
+            "Use the jira-remote MCP to fetch Jira ticket ${ticket}." \
+            "Then use the virtualize MCP to create and deploy a virtual service for that story.")
           set +e
-          output=$(copilot -p "$prompt" --yolo --no-ask-user)
+          output=$(copilot -p "$prompt" --yolo --no-ask-user < /dev/null)
           exit_code=$?
           set -e
           echo "$output"
@@ -90,18 +71,20 @@ jobs:
             exit $exit_code
           fi
 
-      - name: Step 3 - Verify virtual service
+      - name: Step 2 - Verify virtual service
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: |
-          prompt=$(printf '%s\n  %s\n\n%s\n\n%s' \
-            "Read the following skill file in full before taking any action:" \
-            ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-            "Using the virtualize MCP, verify that the virtual service described below is deployed and responding correctly:" \
-            "$(cat pva.txt)")
+          {
+            printf '%s\n  %s\n\n%s\n\n' \
+              "Read the following skill file in full before taking any action:" \
+              ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
+              "Using the virtualize MCP, verify that the virtual service described below is deployed and responding correctly:"
+            cat pva.txt
+          } > /tmp/verify_prompt.txt
           set +e
-          output=$(copilot -p "$prompt" --yolo --no-ask-user)
+          output=$(copilot -p "$(cat /tmp/verify_prompt.txt)" --yolo --no-ask-user < /dev/null)
           exit_code=$?
           set -e
           echo "$output"
