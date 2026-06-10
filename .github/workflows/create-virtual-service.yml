@@ -47,36 +47,20 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve Jira ticket
         id: resolve_ticket
-        shell: powershell
         run: |
-          $ticket = "${{ inputs.jira_ticket }}"
-          if (-not $ticket) {
-            $commitMsg = "${{ github.event.head_commit.message }}"
-            $match = [regex]::Match($commitMsg, '\b[A-Z]{2,10}-\d+\b')
-            $ticket = if ($match.Success) { $match.Value } else { "" }
-          }
-          if (-not $ticket) {
-            Write-Host "No Jira ticket found in commit message - skipping."
-            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host "Resolved ticket: $ticket"
-            "ticket=$ticket" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-
-      # -----------------------------------------------------------------------
-      # Install GitHub Copilot CLI
-      # -----------------------------------------------------------------------
-      - name: Set up Node.js
-        if: steps.resolve_ticket.outputs.skip != 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Install Copilot CLI
-        if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
-        run: npm install -g @github/copilot
+          ticket="${{ inputs.jira_ticket }}"
+          if [ -z "$ticket" ]; then
+            commit_msg="${{ github.event.head_commit.message }}"
+            ticket=$(echo "$commit_msg" | grep -oE '\b[A-Z]{2,10}-[0-9]+\b' | head -1)
+          fi
+          if [ -z "$ticket" ]; then
+            echo "No Jira ticket found in commit message - skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Resolved ticket: $ticket"
+            echo "ticket=$ticket" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # -----------------------------------------------------------------------
       # Write the MCP server configuration for Copilot CLI.
@@ -85,30 +69,29 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Configure MCP servers
         if: steps.resolve_ticket.outputs.skip != 'true'
-        shell: powershell
         env:
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
           VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
         run: |
-          $configDir = "$env:USERPROFILE\.copilot"
-          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-          $config = [ordered]@{
-            mcpServers = [ordered]@{
-              'jira-remote' = [ordered]@{
-                type    = 'http'
-                url     = 'https://mcp.atlassian.com/v1/mcp'
-                headers = @{ Authorization = "Basic $env:ATLASSIAN_BASIC_AUTH" }
-                env     = @{ ATLASSIAN_BASE_URL = 'https://parasoft-demo.atlassian.net' }
-              }
-              virtualize = [ordered]@{
-                type    = 'http'
-                url     = $env:VIRTUALIZE_MCP_URL
-                headers = @{ Authorization = "Basic $env:VIRTUALIZE_AUTH_TOKEN" }
+          mkdir -p "$HOME/.copilot"
+          cat > "$HOME/.copilot/mcp-config.json" <<EOF
+          {
+            "mcpServers": {
+              "jira-remote": {
+                "type": "http",
+                "url": "https://mcp.atlassian.com/v1/mcp",
+                "headers": { "Authorization": "Basic ${ATLASSIAN_BASIC_AUTH}" },
+                "env": { "ATLASSIAN_BASE_URL": "https://parasoft-demo.atlassian.net" }
+              },
+              "virtualize": {
+                "type": "http",
+                "url": "${VIRTUALIZE_MCP_URL}",
+                "headers": { "Authorization": "Basic ${VIRTUALIZE_AUTH_TOKEN}" }
               }
             }
           }
-          $config | ConvertTo-Json -Depth 10 | Set-Content "$configDir\mcp-config.json" -Encoding utf8
+          EOF
 
       # -----------------------------------------------------------------------
       # Agent step 1: Read the Jira story, create and deploy the virtual
@@ -121,59 +104,52 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        shell: powershell
         run: |
-          $ticket = "${{ steps.resolve_ticket.outputs.ticket }}"
-          $dryRun = "${{ inputs.dry_run }}"
-          if (-not $dryRun) { $dryRun = "false" }
+          ticket="${{ steps.resolve_ticket.outputs.ticket }}"
+          dry_run="${{ inputs.dry_run }}"
+          [ -z "$dry_run" ] && dry_run="false"
           # Instruct the agent to read the skill files directly from the checked-out
           # repo rather than injecting their raw content into the prompt. This avoids
-          # PowerShell 5.1 argument-quoting failures that occur when multi-line strings
+          # shell argument-quoting failures that occur when multi-line strings
           # containing double-quotes and flag-like tokens (e.g. -X from curl examples)
           # are passed to external CLIs.
-          $prompt = @"
-          Jira ticket: $ticket. Dry run: $dryRun.
-
-          Before taking any action, read each of the following skill files in full
-          from the working directory, then follow their instructions precisely:
-            .github/skills/jira-story-virtual-service/SKILL.md
-            .github/skills/virtualize-mcp-general-rules/SKILL.md
-            .github/skills/virtualize-correlation-matching-rules/SKILL.md
-            .github/skills/virtualize-inline-expressions/SKILL.md
-            .github/skills/virtualize-asset-validation-instructions/SKILL.md
-
-          Then execute the jira-story-virtual-service workflow for the Jira ticket above,
-          following every guardrail and procedure defined in those skill files.
-          If Dry run is true, describe what you would create but do not call any
-          Virtualize write or deploy tools.
-          "@
-          $ErrorActionPreference = 'Continue'
-          $output = copilot -p $prompt `
-            --yolo `
-            --no-ask-user
-          $copilotExit = $LASTEXITCODE
-          $output
-          if ($copilotExit -ne 0) {
-            Write-Error "Copilot CLI exited with code $copilotExit. See output above for details."
-            exit $copilotExit
-          }
-          $testMethodLine = $output | Where-Object { $_ -match 'TEST_METHOD=' }
-          $fullTestUrlLine = $output | Where-Object { $_ -match 'FULL_TEST_URL=' }
-          if (-not $fullTestUrlLine) {
-            Write-Host "No FULL_TEST_URL found in agent output - verification step will be skipped."
-          }
-          if ($testMethodLine) {
-            $testMethodLine -match 'TEST_METHOD=`?([^`\s]+)' | Out-Null
-            $testMethod = $Matches[1]
-            Write-Host "Captured test method: $testMethod"
-            "test_method=$testMethod" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-          if ($fullTestUrlLine) {
-            $fullTestUrlLine -match 'FULL_TEST_URL=`?([^`\s]+)' | Out-Null
-            $fullTestUrl = $Matches[1]
-            Write-Host "Captured full test URL: $fullTestUrl"
-            "full_test_url=$fullTestUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
+          prompt=$(printf '%s\n\n%s\n%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s\n%s\n%s' \
+            "Jira ticket: ${ticket}. Dry run: ${dry_run}." \
+            "Before taking any action, read each of the following skill files in full" \
+            "from the working directory, then follow their instructions precisely:" \
+            ".github/skills/jira-story-virtual-service/SKILL.md" \
+            ".github/skills/virtualize-mcp-general-rules/SKILL.md" \
+            ".github/skills/virtualize-correlation-matching-rules/SKILL.md" \
+            ".github/skills/virtualize-inline-expressions/SKILL.md" \
+            ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
+            "Then execute the jira-story-virtual-service workflow for the Jira ticket above," \
+            "following every guardrail and procedure defined in those skill files." \
+            "If Dry run is true, describe what you would create but do not call any" \
+            "Virtualize write or deploy tools.")
+          set +e
+          output=$(copilot -p "$prompt" --yolo --no-ask-user)
+          copilot_exit=$?
+          set -e
+          echo "$output"
+          if [ $copilot_exit -ne 0 ]; then
+            echo "::error::Copilot CLI exited with code $copilot_exit. See output above for details."
+            exit $copilot_exit
+          fi
+          test_method_line=$(echo "$output" | grep 'TEST_METHOD=' | head -1 || true)
+          full_test_url_line=$(echo "$output" | grep 'FULL_TEST_URL=' | head -1 || true)
+          if [ -z "$full_test_url_line" ]; then
+            echo "No FULL_TEST_URL found in agent output - verification step will be skipped."
+          fi
+          if [ -n "$test_method_line" ]; then
+            test_method=$(echo "$test_method_line" | grep -oP 'TEST_METHOD=\K[^\s`]+')
+            echo "Captured test method: $test_method"
+            echo "test_method=$test_method" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$full_test_url_line" ]; then
+            full_test_url=$(echo "$full_test_url_line" | grep -oP 'FULL_TEST_URL=\K[^\s`]+')
+            echo "Captured full test URL: $full_test_url"
+            echo "full_test_url=$full_test_url" >> "$GITHUB_OUTPUT"
+          fi
 
       # -----------------------------------------------------------------------
       # Verification step: make the actual HTTP call and assert HTTP 200.
@@ -182,27 +158,16 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Verify Virtual Service Returns HTTP 200
         if: steps.resolve_ticket.outputs.skip != 'true' && inputs.dry_run != 'true' && steps.create_vs.outputs.full_test_url != ''
-        shell: powershell
         run: |
-          $fullUrl    = "${{ steps.create_vs.outputs.full_test_url }}"
-          $testMethod = "${{ steps.create_vs.outputs.test_method }}"
-          if (-not $testMethod) { $testMethod = 'GET' }
-          Write-Host "Sending $testMethod $fullUrl"
-          $params = @{
-            Uri             = $fullUrl
-            Method          = $testMethod
-            UseBasicParsing = $true
-          }
-          try {
-            $response = Invoke-WebRequest @params -ErrorAction Stop
-            Write-Host "Response status: $($response.StatusCode)"
-            if ($response.StatusCode -eq 200) {
-              Write-Host "PASS: Virtual service returned HTTP 200."
-            } else {
-              Write-Error "FAIL: Expected 200 but received $($response.StatusCode)."
-              exit 1
-            }
-          } catch {
-            Write-Error "FAIL: HTTP request threw an exception - $_"
+          full_url="${{ steps.create_vs.outputs.full_test_url }}"
+          test_method="${{ steps.create_vs.outputs.test_method }}"
+          if [ -z "$test_method" ]; then test_method="GET"; fi
+          echo "Sending $test_method $full_url"
+          status_code=$(curl -sk -o /dev/null -w "%{http_code}" -X "$test_method" "$full_url")
+          echo "Response status: $status_code"
+          if [ "$status_code" = "200" ]; then
+            echo "PASS: Virtual service returned HTTP 200."
+          else
+            echo "::error::FAIL: Expected 200 but received $status_code."
             exit 1
-          }
+          fi
