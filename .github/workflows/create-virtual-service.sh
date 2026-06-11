@@ -60,17 +60,17 @@ if [[ $create_exit -ne 0 ]]; then
   die "Create step failed with exit code $create_exit"
 fi
 
-grep -q "^TEST_METHOD=" "$PVA_OUT" || {
+grep -Eq '^`?TEST_METHOD=[^`]+`?[[:space:]]*$' "$PVA_OUT" || {
   tail -30 "$PVA_OUT" || true
   die "Missing TEST_METHOD in pva.txt"
 }
-grep -q "^FULL_TEST_URL=" "$PVA_OUT" || {
+grep -Eq '^`?FULL_TEST_URL=[^`]+`?[[:space:]]*$' "$PVA_OUT" || {
   tail -30 "$PVA_OUT" || true
   die "Missing FULL_TEST_URL in pva.txt"
 }
 
 ts "Create phase output validated."
-grep -E "^(TEST_METHOD|FULL_TEST_URL|FULL_EXTERNAL_URL)=" "$PVA_OUT" || true
+grep -E '^`?(TEST_METHOD|FULL_TEST_URL|FULL_EXTERNAL_URL)=' "$PVA_OUT" || true
 
 ts "Running verification phase..."
 VERIFY_PROMPT="$(cat "$SCRIPT_DIR/verify-virtual-service-prompt.md")"

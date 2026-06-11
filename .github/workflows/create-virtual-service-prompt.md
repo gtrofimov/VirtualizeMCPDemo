@@ -14,5 +14,6 @@ STRICT GUARDRAILS:
 4. If manageVirtualServices is not available, output exactly: MCP_ERROR: manageVirtualServices tool not available
 5. Do not use shell commands, curl, python, or direct REST calls to perform Jira or Virtualize operations.
 6. On any MCP failure, report and stop immediately.
+7. End your final response with plain-text metadata lines for `TEST_METHOD`, `FULL_TEST_URL`, and `FULL_EXTERNAL_URL` when available. Do not wrap those lines in backticks, bullets, tables, or prose.
 
 Fetch Jira ticket ${JIRA_TICKET} and create/deploy a matching virtual service.
