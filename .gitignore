@@ -1,2 +1,4 @@
 .vscode/mcp.json
 .env
+scripts
+tmp

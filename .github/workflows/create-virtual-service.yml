@@ -13,84 +13,20 @@ permissions:
 
 jobs:
   create-virtual-service:
-    name: Read Jira Story → Create Virtual Service
+    name: Read Jira Story -> Create Virtual Service
     runs-on: self-hosted
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure MCP servers
+      - name: Create and verify virtual service
         env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
           VIRTUALIZE_AUTH_TOKEN: ${{ secrets.VIRTUALIZE_AUTH_TOKEN }}
           VIRTUALIZE_MCP_URL: ${{ secrets.VIRTUALIZE_MCP_URL }}
-        run: |
-          mkdir -p "$HOME/.copilot"
-          cat > "$HOME/.copilot/mcp-config.json" <<EOF
-          {
-            "mcpServers": {
-              "jira-remote": {
-                "type": "http",
-                "url": "https://mcp.atlassian.com/v1/mcp",
-                "headers": { "Authorization": "Basic ${ATLASSIAN_BASIC_AUTH}" },
-                "env": { "ATLASSIAN_BASE_URL": "https://parasoft-demo.atlassian.net" }
-              },
-              "virtualize": {
-                "type": "http",
-                "url": "${VIRTUALIZE_MCP_URL}",
-                "headers": { "Authorization": "Basic ${VIRTUALIZE_AUTH_TOKEN}" }
-              }
-            }
-          }
-          EOF
-
-      - name: Step 1 - Read Jira story and create virtual service
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          JIRA_TICKET: ${{ inputs.jira_ticket }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        run: |
-          ticket="${{ inputs.jira_ticket }}"
-          prompt=$(printf '%s\n  %s\n  %s\n  %s\n  %s\n  %s\n\n%s\n%s\n\n%s' \
-            "Read each of the following skill files in full before taking any action:" \
-            ".github/skills/jira-story-virtual-service/SKILL.md" \
-            ".github/skills/virtualize-mcp-general-rules/SKILL.md" \
-            ".github/skills/virtualize-correlation-matching-rules/SKILL.md" \
-            ".github/skills/virtualize-inline-expressions/SKILL.md" \
-            ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-            "Use the jira-remote MCP tool to fetch Jira ticket ${ticket}." \
-            "Then use the manageVirtualServices MCP tool from the virtualize server to create and deploy a virtual service for that story." \
-            "IMPORTANT: use the MCP tools directly. Do NOT attempt to call MCP servers via shell, curl, npx, or Python scripts.")
-          echo "[$(date '+%H:%M:%S')] Starting copilot agent..."
-          set +e
-          copilot -p "$prompt" --yolo --no-ask-user < /dev/null | tee pva.txt
-          exit_code=${PIPESTATUS[0]}
-          set -e
-          echo "[$(date '+%H:%M:%S')] Copilot agent finished (exit $exit_code)."
-          if [ $exit_code -ne 0 ]; then
-            echo "::error::Copilot CLI exited with code $exit_code."
-            exit $exit_code
-          fi
-
-      - name: Step 2 - Verify virtual service
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          NODE_TLS_REJECT_UNAUTHORIZED: '0'
-        run: |
-          {
-            printf '%s\n  %s\n\n%s\n\n' \
-              "Read the following skill file in full before taking any action:" \
-              ".github/skills/virtualize-asset-validation-instructions/SKILL.md" \
-              "Using the virtualize MCP, verify that the virtual service described below is deployed and responding correctly:"
-            cat pva.txt
-          } > /tmp/verify_prompt.txt
-          echo "[$(date '+%H:%M:%S')] Starting copilot verification agent..."
-          set +e
-          copilot -p "$(cat /tmp/verify_prompt.txt)" --yolo --no-ask-user < /dev/null
-          exit_code=$?
-          set -e
-          echo "[$(date '+%H:%M:%S')] Verification finished (exit $exit_code)."
-          if [ $exit_code -ne 0 ]; then
-            echo "::error::Copilot CLI exited with code $exit_code."
-            exit $exit_code
-          fi
+        run: bash .github/workflows/create-virtual-service.sh
