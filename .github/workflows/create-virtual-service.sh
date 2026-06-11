@@ -20,20 +20,6 @@ die() {
 : "${VIRTUALIZE_MCP_URL:?Missing VIRTUALIZE_MCP_URL}"
 : "${JIRA_TICKET:?Missing JIRA_TICKET}"
 
-ts "Pre-flight: checking Virtualize MCP endpoint..."
-set +e
-status=$(curl -s -o /dev/null -w "%{http_code}" \
-  --connect-timeout 5 --max-time 10 \
-  -H "Authorization: Basic ${VIRTUALIZE_AUTH_TOKEN}" \
-  "${VIRTUALIZE_MCP_URL}")
-probe_exit=$?
-set -e
-if [[ $probe_exit -ne 0 ]]; then
-  echo "::warning::Virtualize MCP HTTP probe failed with curl exit ${probe_exit}. Continuing because some MCP endpoints do not respond to a plain GET probe."
-else
-  ts "Virtualize MCP endpoint probe returned HTTP $status."
-fi
-
 ts "Registering MCP servers..."
 copilot mcp remove jira-remote > /dev/null 2>&1 || true
 copilot mcp remove virtualize > /dev/null 2>&1 || true
