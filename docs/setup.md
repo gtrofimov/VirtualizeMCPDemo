@@ -45,7 +45,7 @@ the built-in MCP Server. In general:
    ```powershell
    curl.exe http://localhost:9080/soavirt/mcp
    ```
-4. Set the `VIRTUALIZE_MCP_URL` secret to that full URL.
+4. Set the `VIRTUALIZE_MCP_URL` Actions variable to that full URL.
 
 ---
 
@@ -59,6 +59,12 @@ add each of the following:
 | `COPILOT_PAT` | Fine-grained PAT with **Copilot Requests** permission — create at <https://github.com/settings/personal-access-tokens/new> |
 | `ATLASSIAN_BASIC_AUTH` | Run `[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("email@example.com:api-token"))` in PowerShell |
 | `VIRTUALIZE_AUTH_TOKEN` | Run `[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("username:password"))` in PowerShell |
+
+In **Settings → Secrets and variables → Actions → Variables → New repository variable**,
+add the following:
+
+| Variable name | Where to get the value |
+|---------------|------------------------|
 | `VIRTUALIZE_MCP_URL` | HTTP endpoint of the Virtualize MCP Server (step 3) |
 
 > **Atlassian API token auth**: In your Atlassian Admin console go to

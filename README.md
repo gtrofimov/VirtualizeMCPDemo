@@ -75,6 +75,11 @@ Add the following secrets in **Settings → Secrets and variables → Actions**:
 | `COPILOT_PAT` | Fine-grained PAT with **Copilot Requests** permission |
 | `ATLASSIAN_BASIC_AUTH` | `base64(your-email@example.com:your-api-token)` — see setup guide |
 | `VIRTUALIZE_AUTH_TOKEN` | `base64(virtualize-user:virtualize-password)` |
+
+Add the following Actions variable in **Settings → Secrets and variables → Actions → Variables**:
+
+| Variable | Description |
+|---|---|
 | `VIRTUALIZE_MCP_URL` | URL of the Virtualize MCP Server HTTP endpoint |
 
 ### 3 — Configure MCP servers
@@ -100,7 +105,7 @@ enter your Jira ticket number, and click **Run workflow**.
 
 - **Change the prompt**: edit the prompt heredoc in the `Run Copilot Agent - Create Virtual Service from Jira Story` step of the workflow.
 - **Lock down tool permissions**: the workflow uses `--yolo` (all tools allowed) as a workaround for a known Copilot CLI bug where `--allow-tool` does not work in `--prompt` / `-p` mode ([issue #1592](https://github.com/github/copilot-cli/issues/1592)). Once that bug is fixed, replace `--yolo` with `--allow-tool='jira-remote' --allow-tool='virtualize'`.
-- **Different Virtualize MCP URL**: update the `VIRTUALIZE_MCP_URL` secret.
+- **Different Virtualize MCP URL**: update the `VIRTUALIZE_MCP_URL` Actions variable.
 - **Additional workflow triggers** (e.g. on issue label): extend the `on:` block in the workflow file.
 
 ---
