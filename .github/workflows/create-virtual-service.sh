@@ -21,20 +21,20 @@ die() {
 : "${JIRA_TICKET:?Missing JIRA_TICKET}"
 
 ts "Registering MCP servers..."
-copilot mcp remove jira-remote > /dev/null 2>&1 || true
-copilot mcp remove virtualize > /dev/null 2>&1 || true
+copilot mcp remove jira-remote-cicd > /dev/null 2>&1 || true
+copilot mcp remove virtualize-cicd > /dev/null 2>&1 || true
 
 copilot mcp add \
   --transport http \
   --header "Authorization: Basic ${ATLASSIAN_BASIC_AUTH}" \
   --env ATLASSIAN_BASE_URL=https://parasoft-demo.atlassian.net \
-  jira-remote \
+  jira-remote-cicd \
   https://mcp.atlassian.com/v1/mcp
 
 copilot mcp add \
   --transport http \
   --header "Authorization: Basic ${VIRTUALIZE_AUTH_TOKEN}" \
-  virtualize \
+  virtualize-cicd \
   "${VIRTUALIZE_MCP_URL}"
 
 ts "Running create phase for ticket ${JIRA_TICKET}..."
