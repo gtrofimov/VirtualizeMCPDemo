@@ -10,6 +10,16 @@ These rules apply whenever using the `manageVirtualServices` MCP tool (or any Vi
 
 ---
 
+## Initial Asset Creation Boundary
+
+Initial PVA creation must use Virtualize MCP tools only.
+
+- Never create the initial virtual asset through REST APIs, local file generation, staging-directory commits, or any other fallback workflow.
+- If the required Virtualize MCP creation tool is unavailable in the current session, stop initial asset creation immediately and report that blocker instead of attempting a substitute path.
+- REST and file-level APIs may be used only after a baseline asset already exists, and only when a downstream skill explicitly permits post-creation mutation.
+
+---
+
 ## Pre-Creation Uniqueness Checks
 
 Before creating any virtual service, run a single `manageVirtualServices action=list` call to enumerate all existing MCP-managed services. Each entry is of the form:
@@ -31,7 +41,10 @@ One `list` call satisfies all three checks — do not make redundant calls.
 - If the intended service name already exists in the occupied set, append `-1`, `-2`, etc. until the name is unique.
 
 ### Port uniqueness
-- Starting from the intended or default port (`38000`), choose the lowest port not present in the occupied set.
+- If the source workflow or story defines an explicit port, treat that as required unless the user approves a change.
+- If the source workflow or story defines a port range, choose the lowest port in that range that is not present in the occupied set.
+- Only when no source-defined port constraint exists, start from the default port (`38000`) and choose the lowest port not present in the occupied set.
+- Do not silently fall back outside a source-defined range.
 - Never reuse an occupied port.
 
 ### Deployment prefix uniqueness
@@ -94,6 +107,14 @@ The `manageVirtualServices action=describe` output does not faithfully reflect w
 ## Downloading, Modifying, and Re-uploading Request/Response Files
 
 It is normal and expected for an agent to download the request/response files of an existing virtual service in order to enrich or extend them — for example, to add inline expressions, correlation rules, or additional interactions — and then re-upload the modified files back to the server. Use the following guidance any time this pattern is needed.
+
+## Virtualize REST Write Guardrails
+
+For REST create and update operations, validate the writable target type before mutation. Do not infer allowed parent containers from filename or path shape alone.
+
+For HTTP writes that require both query parameters and a JSON body, avoid mixed transport construction patterns such as `curl -G` plus body `--data` in the same call. Build the encoded URL first, then send the body with a plain `POST` or `PUT`.
+
+When the same REST contract detail has already been proven stable for a workflow, prefer embedding that narrow contract fragment in the owning skill instead of re-reading the full SOAVirt schema on every run. Re-open the schema only when the workflow reaches an uncovered endpoint, an ambiguous field, or a server-version mismatch.
 
 ### Choosing an approach
 

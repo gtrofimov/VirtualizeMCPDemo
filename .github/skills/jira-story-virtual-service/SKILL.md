@@ -23,20 +23,38 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 
 - `jira_ticket` (required): Jira issue key, such as `PROJ-123`
 
+## Source-of-Truth Rule
+
+If the user input contains a ticket-shaped key such as `PGT-20` or `PROJ-123`, treat Jira as the only authoritative source for story details on the first pass.
+
+- Always fetch the real Jira issue before inferring behavior from local repo files, skills, cards, or examples.
+- Local repo materials may be used only as supplemental implementation context after the Jira issue has been read.
+- If the Jira lookup fails, the Jira tools are unavailable, or the issue cannot be read, stop and report that blocker.
+- Do not silently fall back to local examples or similarly named repo content unless the user explicitly approves that fallback.
+
 ## Mandatory Guardrails
 
 1. Jira cloudId guardrail
 - Always call Jira tools with `cloudId: parasoft-demo.atlassian.net`
 - Never derive or guess cloudId from URLs, usernames, or emails
 
-2. Service naming guardrail
+2. Jira-key resolution guardrail
+- If the prompt includes a ticket-shaped key matching `[A-Z]+-\d+`, you must resolve that issue from Jira before creating or modifying a service.
+- Do not treat local sample stories, local docs, or skill examples as substitutes for the Jira issue.
+- If no exact Jira issue can be read, stop and surface the blocker instead of inferring the story from local context.
+
+3. Service naming guardrail
 - Infer service name from the Jira story when confidence is high
 - If confidence is low, use the Jira ticket key as the default name
 
-3. Port selection guardrail
-- If no confident port is present in the story, default to `38000`
+4. Port selection guardrail
+- If the story defines an explicit port, use it
+- If the story defines a port range, choose the lowest unoccupied port within that range
+- If the story defines both a preferred port and a range, the chosen port must satisfy the range
+- If no confident port or range is present in the story, default to `38000`
+- Never ignore a story-defined port constraint in favor of the generic `38000` default
 
-4. Deployment prefix guardrail
+5. Deployment prefix guardrail
 - If no confident deployment prefix is present, default to the repo name `VirtualizeMCPDemo`
 
 ## Procedure
@@ -50,6 +68,10 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
   - response schema/body examples
   - behavior rules and status expectations
   - optional service name, deployment, and port hints
+- If the input was a ticket-shaped key, complete this Jira fetch before reading local story examples for implementation help.
+- If local repo materials describe a similar endpoint but disagree with Jira or are less specific, Jira wins.
+- If the story implies branching behavior such as approval versus denial, valid versus invalid inputs, or multiple success outcomes, confirm that it also defines a deterministic decision matrix.
+- If the story provides only one example but implies multiple behavioral outcomes, stop and ask for the missing matrix instead of inventing datasource rows or fallback behavior silently.
 
 2. Resolve required values and approvals
 - Resolve and finalize:
@@ -58,6 +80,8 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
   - port
   - interactions to create
   - assumptions/defaults
+- Treat an explicit story-defined port or port range as higher priority than skill defaults or prior examples.
+- If every port in the story-defined range is occupied, stop and report that constraint conflict instead of silently falling back outside the range.
 - If any mandatory gate is not satisfied, stop and ask for explicit approval/input
 
 3. Create virtual service
@@ -67,7 +91,10 @@ Given a Jira ticket key (for example, `PROJ-123`), read the story with Atlassian
 - Include at least one catch-all `200` response for valid request shapes so requests with values deviating from examples still receive a `200` response.
 
 4. Verification and final output
-- Confirm deployment success by testing the endpoint before finishing
+- Confirm deployment success by testing the endpoint from terminal toolchain before finishing
+- In this VS Code agent environment, use `run_in_terminal` for live HTTP validation.
+- Never use `run_vscode_command`, VS Code tasks, terminal send-sequence helpers, or editor-command probes for API validation.
+- Do not use VS Code UI commands or placeholder commands such as `noop` to validate HTTP behavior
 - Provide concise summary:
   - service name
   - deployment prefix
